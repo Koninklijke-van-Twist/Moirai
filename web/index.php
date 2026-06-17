@@ -15,7 +15,7 @@ $moiraiJsKeys = [
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.screen',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.save', 'moirai.btn.cancel',
-    'moirai.btn.delete', 'moirai.field.naam', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
+    'moirai.btn.delete', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
     'moirai.field.ram', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version',
     'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
@@ -797,6 +797,23 @@ $moiraiJsKeys = [
         state.attrFilters = {};
     }
 
+    function deviceTitle(device) {
+        return device.model || device.naam || t('moirai.unnamed');
+    }
+
+    function deviceSubtitle(device, type) {
+        var os = String(device.os || '').trim();
+        var osVersion = String(device.os_versie || '').trim();
+        var key = String(device[keyField(type)] || device.id || '').trim();
+        var osPart = [os, osVersion].filter(Boolean).join(' ');
+
+        if (osPart && key) {
+            return osPart + ' - ' + key;
+        }
+
+        return osPart || key || '—';
+    }
+
     function renderList() {
         listLoader.hidden = true;
 
@@ -818,9 +835,8 @@ $moiraiJsKeys = [
             var key = device[keyField(state.tab)] || device.id;
 
             return '<button type="button" class="device-item" data-id="' + escapeHtml(key) + '">' +
-                '<p class="device-name">' + escapeHtml(device.naam || t('moirai.unnamed')) + '</p>' +
-                '<p class="device-meta">' + escapeHtml(device.model || '') +
-                (key ? ' · ' + escapeHtml(key) : '') + '</p>' +
+                '<p class="device-name">' + escapeHtml(deviceTitle(device)) + '</p>' +
+                '<p class="device-meta">' + escapeHtml(deviceSubtitle(device, state.tab)) + '</p>' +
                 '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
                 '</button>';
         }).join('');
@@ -829,8 +845,7 @@ $moiraiJsKeys = [
     function fieldDefinitions(type) {
         if (type === 'laptop') {
             return [
-                { name: 'naam', labelKey: 'moirai.field.naam', required: true },
-                { name: 'model', labelKey: 'moirai.field.model' },
+                { name: 'model', labelKey: 'moirai.field.model', required: true },
                 { name: 'serienummer', labelKey: 'moirai.field.serial', required: true, key: true },
                 { name: 'ram', labelKey: 'moirai.field.ram' },
                 { name: 'cpu', labelKey: 'moirai.field.cpu' },
@@ -841,8 +856,7 @@ $moiraiJsKeys = [
         }
 
         return [
-            { name: 'naam', labelKey: 'moirai.field.naam', required: true },
-            { name: 'model', labelKey: 'moirai.field.model' },
+            { name: 'model', labelKey: 'moirai.field.model', required: true },
             { name: 'imei', labelKey: 'moirai.field.imei', required: true, key: true },
             { name: 'schermformaat', labelKey: 'moirai.field.screen' },
             { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iPhone'] },
@@ -891,7 +905,7 @@ $moiraiJsKeys = [
         modalView.innerHTML = html;
         modalView.hidden = false;
         modalForm.hidden = true;
-        modalTitle.textContent = device.naam || t('moirai.modal.device');
+        modalTitle.textContent = deviceTitle(device);
 
         modalActions.innerHTML = '';
         var historyBtn = document.createElement('button');
@@ -931,7 +945,7 @@ $moiraiJsKeys = [
 
     function openHistoryModal(device) {
         document.getElementById('history-modal-body').innerHTML = renderHistoryBlock(device);
-        document.getElementById('history-modal-title').textContent = t('moirai.modal.history') + ': ' + (device.naam || '');
+        document.getElementById('history-modal-title').textContent = t('moirai.modal.history') + ': ' + deviceTitle(device);
         openBackdrop('history-modal');
     }
 
@@ -945,7 +959,7 @@ $moiraiJsKeys = [
                 '<select id="assign-user" name="uitgegeven_email">' +
                 userOptions(device.uitgegeven_aan ? device.uitgegeven_aan.email : '') +
                 '</select></div></form>';
-            document.getElementById('assign-modal-title').textContent = t('moirai.modal.assign') + ': ' + (device.naam || '');
+            document.getElementById('assign-modal-title').textContent = t('moirai.modal.assign') + ': ' + deviceTitle(device);
             var actions = document.getElementById('assign-modal-actions');
             actions.innerHTML = '';
             var saveBtn = document.createElement('button');
@@ -1141,7 +1155,7 @@ $moiraiJsKeys = [
         state.pendingDeleteDevice = device;
         var nameEl = document.getElementById('delete-confirm-device');
         if (nameEl) {
-            nameEl.textContent = device.naam || t('moirai.unnamed');
+            nameEl.textContent = deviceTitle(device);
         }
         openBackdrop('delete-confirm-modal');
     }

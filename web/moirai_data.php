@@ -4,7 +4,6 @@ const MOIRAI_DB_FILE = __DIR__ . '/data/moirai.sqlite';
 const MOIRAI_FILTER_CACHE_FILE = __DIR__ . '/data/filter_cache.json';
 
 const MOIRAI_LAPTOP_FIELDS = [
-    'naam',
     'model',
     'serienummer',
     'ram',
@@ -15,7 +14,6 @@ const MOIRAI_LAPTOP_FIELDS = [
 ];
 
 const MOIRAI_PHONE_FIELDS = [
-    'naam',
     'model',
     'imei',
     'schermformaat',
@@ -51,6 +49,13 @@ const MOIRAI_PHONE_FILTER_FIELDS = [
 
 function moirai_is_admin(): bool
 {
+    $email = (string) ($_SESSION['user']['email'] ?? '');
+    if ($email !== '' && isset($GLOBALS['ictUsers']) && is_array($GLOBALS['ictUsers'])) {
+        if (function_exists('moirai_email_in_list')) {
+            return moirai_email_in_list($email, $GLOBALS['ictUsers']);
+        }
+    }
+
     return !empty($_SESSION['user']['admin']);
 }
 
@@ -135,18 +140,67 @@ function moirai_validate_aanschafdatum(string $value, bool $defaultToday = false
     return $date->format('Y-m-d');
 }
 
-function moirai_validate_schermformaat(string $value): string
+function moirai_format_schermformaat_inches(float $amount): string
 {
-    $value = str_replace(',', '.', trim($value));
+    $normalizedAmount = rtrim(rtrim(number_format($amount, 2, '.', ''), '0'), '.');
+
+    return $normalizedAmount . '"';
+}
+
+function moirai_normalize_schermformaat_display(string $value): string
+{
+    $value = trim($value);
     if ($value === '') {
         return '';
     }
 
-    if (!is_numeric($value) || (float) $value <= 0) {
+    try {
+        return moirai_validate_schermformaat($value);
+    } catch (InvalidArgumentException) {
+        return $value;
+    }
+}
+
+function moirai_validate_schermformaat(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $value = str_replace(',', '.', $value);
+    $value = preg_replace('/[″"\']+/u', '', $value) ?? $value;
+    $value = trim($value);
+
+    if (!preg_match('/^(\d+(?:\.\d+)?)\s*(?:inch(?:es)?|in|zoll|pouces)?\.?\s*$/iu', $value, $matches)) {
         throw new InvalidArgumentException(moirai_loc('moirai.error.screen_invalid'));
     }
 
-    return rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
+    $amount = (float) $matches[1];
+    if ($amount <= 0) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.screen_invalid'));
+    }
+
+    return moirai_format_schermformaat_inches($amount);
+}
+
+function moirai_normalize_filter_options(string $typeKey, array $options): array
+{
+    if ($typeKey !== 'phones' || !isset($options['schermformaat']) || !is_array($options['schermformaat'])) {
+        return $options;
+    }
+
+    $normalized = [];
+    foreach ($options['schermformaat'] as $value) {
+        $formatted = moirai_normalize_schermformaat_display((string) $value);
+        if ($formatted !== '') {
+            $normalized[] = $formatted;
+        }
+    }
+
+    $options['schermformaat'] = moirai_sort_filter_values(array_values(array_unique($normalized)));
+
+    return $options;
 }
 
 function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool $isNew): void
@@ -499,7 +553,7 @@ function moirai_get_filter_options(string $type, array $activeFilters = []): arr
     if ($sanitized === []) {
         $cache = moirai_read_filter_cache();
 
-        return $cache[$typeKey] ?? moirai_empty_filter_cache()[$typeKey];
+        return moirai_normalize_filter_options($typeKey, $cache[$typeKey] ?? moirai_empty_filter_cache()[$typeKey]);
     }
 
     $devices = moirai_list_devices($type);
@@ -527,7 +581,7 @@ function moirai_get_filter_options(string $type, array $activeFilters = []): arr
         $result[$field] = moirai_sort_filter_values($values);
     }
 
-    return $result;
+    return moirai_normalize_filter_options($typeKey, $result);
 }
 
 function moirai_count_devices_with_field_value(string $typeKey, string $field, string $value): int
@@ -677,11 +731,17 @@ function moirai_row_to_device(array $row, string $typeKey): array
         ];
     }
 
+    $model = trim((string) ($row['model'] ?? ''));
+    $naam = trim((string) ($row['naam'] ?? ''));
+    if ($model === '' && $naam !== '') {
+        $model = $naam;
+    }
+
     $device = [
         'id' => (string) ($row[$keyField] ?? ''),
         $keyField => (string) ($row[$keyField] ?? ''),
-        'naam' => (string) ($row['naam'] ?? ''),
-        'model' => (string) ($row['model'] ?? ''),
+        'naam' => $model,
+        'model' => $model,
         'aanschafdatum' => (string) ($row['aanschafdatum'] ?? ''),
         'uitgegeven_aan' => $uitgegeven,
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
@@ -694,7 +754,7 @@ function moirai_row_to_device(array $row, string $typeKey): array
         $device['os'] = (string) ($row['os'] ?? $row['besturingssysteem'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
     } else {
-        $device['schermformaat'] = (string) ($row['schermformaat'] ?? '');
+        $device['schermformaat'] = moirai_normalize_schermformaat_display((string) ($row['schermformaat'] ?? ''));
         $device['os'] = (string) ($row['os'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
     }
@@ -744,7 +804,7 @@ function moirai_list_devices(string $type): array
 
     $table = moirai_table_name($typeKey);
     $pdo = moirai_db();
-    $rows = $pdo->query("SELECT * FROM {$table} ORDER BY naam COLLATE NOCASE ASC")->fetchAll();
+    $rows = $pdo->query("SELECT * FROM {$table} ORDER BY model COLLATE NOCASE ASC, naam COLLATE NOCASE ASC")->fetchAll();
     $devices = [];
 
     foreach ($rows as $row) {
@@ -837,9 +897,10 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
     $keyField = moirai_device_key_field($typeKey);
     $keyValue = $sanitized[$keyField];
 
-    if ($sanitized['naam'] === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.name_required'));
+    if ($sanitized['model'] === '') {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.model_required'));
     }
+    $sanitized['naam'] = $sanitized['model'];
     if ($keyValue === '') {
         throw new InvalidArgumentException(
             $typeKey === 'laptops'
@@ -1036,7 +1097,12 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
         if ($value === '') {
             continue;
         }
-        if (strcasecmp(trim((string) ($device[$field] ?? '')), $value) !== 0) {
+        $deviceValue = trim((string) ($device[$field] ?? ''));
+        if ($field === 'schermformaat') {
+            $deviceValue = moirai_normalize_schermformaat_display($deviceValue);
+            $value = moirai_normalize_schermformaat_display($value);
+        }
+        if (strcasecmp($deviceValue, $value) !== 0) {
             return false;
         }
     }

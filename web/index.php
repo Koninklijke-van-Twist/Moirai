@@ -1324,11 +1324,16 @@ $moiraiJsKeys = [
 
     document.querySelectorAll('[data-close-modal]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            closeBackdrop(btn.getAttribute('data-close-modal'));
+            var modalId = btn.getAttribute('data-close-modal');
+            if (modalId === 'device-modal') {
+                closeModal();
+                return;
+            }
+            closeBackdrop(modalId);
         });
     });
 
-    ['device-modal', 'assign-modal', 'history-modal', 'delete-confirm-modal'].forEach(function (id) {
+    ['assign-modal', 'history-modal', 'delete-confirm-modal'].forEach(function (id) {
         var backdrop = document.getElementById(id);
         backdrop.addEventListener('click', function (event) {
             if (event.target === backdrop) {
@@ -1337,11 +1342,6 @@ $moiraiJsKeys = [
                     return;
                 }
                 closeBackdrop(id);
-                if (id === 'device-modal') {
-                    state.currentDevice = null;
-                    state.editing = false;
-                    showMessage(modalMessage, '');
-                }
             }
         });
     });

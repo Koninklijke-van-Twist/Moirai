@@ -7,6 +7,7 @@ const MOIRAI_LAPTOP_FIELDS = [
     'model',
     'serienummer',
     'ram',
+    'opslag',
     'cpu',
     'aanschafdatum',
     'os',
@@ -17,6 +18,7 @@ const MOIRAI_PHONE_FIELDS = [
     'model',
     'imei',
     'schermformaat',
+    'opslag',
     'os',
     'os_versie',
     'aanschafdatum',
@@ -38,6 +40,7 @@ const MOIRAI_LAPTOP_FILTER_FIELDS = [
     'os_versie',
     'model',
     'ram',
+    'opslag',
 ];
 
 const MOIRAI_PHONE_FILTER_FIELDS = [
@@ -45,6 +48,7 @@ const MOIRAI_PHONE_FILTER_FIELDS = [
     'os_versie',
     'model',
     'schermformaat',
+    'opslag',
 ];
 
 function moirai_is_admin(): bool
@@ -85,7 +89,7 @@ function moirai_fetch_directory_users(): array
     return is_array($users) ? $users : [];
 }
 
-function moirai_validate_ram(string $value): string
+function moirai_validate_byte_amount(string $value, string $errorKey): string
 {
     $value = trim($value);
     if ($value === '') {
@@ -93,7 +97,7 @@ function moirai_validate_ram(string $value): string
     }
 
     if (!preg_match('/^(\d+(?:[.,]\d+)?)\s*(b|byte|bytes|kb|mb|gb|tb)?$/iu', $value, $matches)) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.ram_invalid'));
+        throw new InvalidArgumentException(moirai_loc($errorKey));
     }
 
     $amount = str_replace(',', '.', $matches[1]);
@@ -112,12 +116,22 @@ function moirai_validate_ram(string $value): string
     ];
 
     if (!isset($unitMap[$unit])) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.ram_invalid'));
+        throw new InvalidArgumentException(moirai_loc($errorKey));
     }
 
     $normalizedAmount = rtrim(rtrim(number_format((float) $amount, 2, '.', ''), '0'), '.');
 
     return $normalizedAmount . ' ' . $unitMap[$unit];
+}
+
+function moirai_validate_ram(string $value): string
+{
+    return moirai_validate_byte_amount($value, 'moirai.error.ram_invalid');
+}
+
+function moirai_validate_opslag(string $value): string
+{
+    return moirai_validate_byte_amount($value, 'moirai.error.opslag_invalid');
 }
 
 function moirai_validate_aanschafdatum(string $value, bool $defaultToday = false): string
@@ -207,12 +221,14 @@ function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool 
 {
     if ($typeKey === 'laptops') {
         $sanitized['ram'] = moirai_validate_ram($sanitized['ram']);
+        $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
         $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'], $isNew);
         $sanitized['os'] = moirai_normalize_laptop_os($sanitized['os']);
         return;
     }
 
     $sanitized['schermformaat'] = moirai_validate_schermformaat($sanitized['schermformaat']);
+    $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
     $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'], $isNew);
     $sanitized['os'] = moirai_normalize_phone_os($sanitized['os']);
 }
@@ -364,6 +380,8 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'phones', 'os', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'laptops', 'os_versie', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'laptops', 'os', "TEXT NOT NULL DEFAULT ''");
+    moirai_ensure_column($pdo, 'laptops', 'opslag', "TEXT NOT NULL DEFAULT ''");
+    moirai_ensure_column($pdo, 'phones', 'opslag', "TEXT NOT NULL DEFAULT ''");
     moirai_migrate_laptop_os_column($pdo);
 }
 
@@ -750,11 +768,13 @@ function moirai_row_to_device(array $row, string $typeKey): array
 
     if ($typeKey === 'laptops') {
         $device['ram'] = (string) ($row['ram'] ?? '');
+        $device['opslag'] = (string) ($row['opslag'] ?? '');
         $device['cpu'] = (string) ($row['cpu'] ?? '');
         $device['os'] = (string) ($row['os'] ?? $row['besturingssysteem'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
     } else {
         $device['schermformaat'] = moirai_normalize_schermformaat_display((string) ($row['schermformaat'] ?? ''));
+        $device['opslag'] = (string) ($row['opslag'] ?? '');
         $device['os'] = (string) ($row['os'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
     }
@@ -950,6 +970,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'naam' => $sanitized['naam'],
             'model' => $sanitized['model'],
             'ram' => $sanitized['ram'],
+            'opslag' => $sanitized['opslag'],
             'cpu' => $sanitized['cpu'],
             'aanschafdatum' => $sanitized['aanschafdatum'],
             'os' => $sanitized['os'],
@@ -961,6 +982,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'naam' => $sanitized['naam'],
             'model' => $sanitized['model'],
             'schermformaat' => $sanitized['schermformaat'],
+            'opslag' => $sanitized['opslag'],
             'os' => $sanitized['os'],
             'os_versie' => $sanitized['os_versie'],
             'aanschafdatum' => $sanitized['aanschafdatum'],
@@ -1115,6 +1137,7 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             (string) ($device['serienummer'] ?? ''),
             (string) ($device['imei'] ?? ''),
             (string) ($device['ram'] ?? ''),
+            (string) ($device['opslag'] ?? ''),
             (string) ($device['cpu'] ?? ''),
             (string) ($device['os'] ?? ''),
             (string) ($device['os_versie'] ?? ''),

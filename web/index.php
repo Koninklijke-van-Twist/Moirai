@@ -12,15 +12,15 @@ $todayIso = date('Y-m-d');
 
 $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.unnamed', 'moirai.filter.all',
-    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.screen',
+    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
-    'moirai.field.ram', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version',
+    'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version',
     'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
-    'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed',
+    'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
 ];
 
 ?>
@@ -205,12 +205,51 @@ $moiraiJsKeys = [
 
         .device-item {
             width: 100%;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
             text-align: left;
             border: 1px solid var(--kvt-line);
             background: #fff;
             border-radius: 12px;
             padding: 14px 16px;
             cursor: pointer;
+        }
+
+        .device-item-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .device-missing {
+            flex: 0 1 auto;
+            max-width: 42%;
+            text-align: right;
+            font-size: 0.72rem;
+            line-height: 1.4;
+            color: #92400e;
+        }
+
+        .device-missing-label {
+            display: block;
+            font-weight: 700;
+            color: var(--kvt-danger);
+            margin-bottom: 3px;
+        }
+
+        @media (max-width: 540px) {
+            .device-item {
+                flex-direction: column;
+            }
+
+            .device-missing {
+                max-width: none;
+                width: 100%;
+                text-align: left;
+                padding-top: 8px;
+                border-top: 1px dashed var(--kvt-line);
+            }
         }
 
         .device-item:hover {
@@ -613,13 +652,15 @@ $moiraiJsKeys = [
             { name: 'os', labelKey: 'moirai.filter.os' },
             { name: 'os_versie', labelKey: 'moirai.filter.os_version' },
             { name: 'model', labelKey: 'moirai.filter.model' },
-            { name: 'ram', labelKey: 'moirai.filter.ram' }
+            { name: 'ram', labelKey: 'moirai.filter.ram' },
+            { name: 'opslag', labelKey: 'moirai.filter.storage' }
         ],
         phone: [
             { name: 'os', labelKey: 'moirai.filter.os' },
             { name: 'os_versie', labelKey: 'moirai.filter.os_version' },
             { name: 'model', labelKey: 'moirai.filter.model' },
-            { name: 'schermformaat', labelKey: 'moirai.filter.screen' }
+            { name: 'schermformaat', labelKey: 'moirai.filter.screen' },
+            { name: 'opslag', labelKey: 'moirai.filter.storage' }
         ]
     };
 
@@ -814,6 +855,31 @@ $moiraiJsKeys = [
         return osPart || key || '—';
     }
 
+    function missingDeviceFields(device, type) {
+        return fieldDefinitions(type).filter(function (field) {
+            return String(device[field.name] ?? '').trim() === '';
+        });
+    }
+
+    function renderMissingFieldsBlock(device, type) {
+        if (!isAdmin) {
+            return '';
+        }
+
+        var missing = missingDeviceFields(device, type);
+        if (!missing.length) {
+            return '';
+        }
+
+        var labels = missing.map(function (field) {
+            return escapeHtml(t(field.labelKey));
+        }).join(', ');
+
+        return '<div class="device-missing">' +
+            '<span class="device-missing-label">' + escapeHtml(t('moirai.missing.fields')) + '</span>' +
+            '<span>' + labels + '</span></div>';
+    }
+
     function renderList() {
         listLoader.hidden = true;
 
@@ -835,9 +901,12 @@ $moiraiJsKeys = [
             var key = device[keyField(state.tab)] || device.id;
 
             return '<button type="button" class="device-item" data-id="' + escapeHtml(key) + '">' +
+                '<div class="device-item-main">' +
                 '<p class="device-name">' + escapeHtml(deviceTitle(device)) + '</p>' +
                 '<p class="device-meta">' + escapeHtml(deviceSubtitle(device, state.tab)) + '</p>' +
                 '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
+                '</div>' +
+                renderMissingFieldsBlock(device, state.tab) +
                 '</button>';
         }).join('');
     }
@@ -848,6 +917,7 @@ $moiraiJsKeys = [
                 { name: 'model', labelKey: 'moirai.field.model', required: true },
                 { name: 'serienummer', labelKey: 'moirai.field.serial', required: true, key: true },
                 { name: 'ram', labelKey: 'moirai.field.ram' },
+                { name: 'opslag', labelKey: 'moirai.field.storage' },
                 { name: 'cpu', labelKey: 'moirai.field.cpu' },
                 { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
                 { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Windows', 'OSX', 'Linux'] },
@@ -859,6 +929,7 @@ $moiraiJsKeys = [
             { name: 'model', labelKey: 'moirai.field.model', required: true },
             { name: 'imei', labelKey: 'moirai.field.imei', required: true, key: true },
             { name: 'schermformaat', labelKey: 'moirai.field.screen' },
+            { name: 'opslag', labelKey: 'moirai.field.storage' },
             { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iPhone'] },
             { name: 'os_versie', labelKey: 'moirai.field.os_version' },
             { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' }

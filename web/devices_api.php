@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/logincheck.php';
+require_once __DIR__ . '/localization.php';
 require_once __DIR__ . '/moirai_data.php';
 
 $action = trim((string) ($_GET['action'] ?? $_POST['action'] ?? ''));
@@ -32,43 +33,56 @@ try {
             $id = trim((string) ($_GET['id'] ?? ''));
             $device = moirai_get_device($type, $id);
             if ($device === null) {
-                moirai_json_response(['ok' => false, 'error' => 'Apparaat niet gevonden.'], 404);
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.device_not_found')], 404);
             }
             moirai_json_response(['ok' => true, 'device' => $device]);
             break;
 
         case 'users':
             if (!moirai_is_admin()) {
-                moirai_json_response(['ok' => false, 'error' => 'Geen rechten.'], 403);
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.forbidden')], 403);
             }
-            $users = include __DIR__ . '/getusers.php';
-            moirai_json_response(['ok' => true, 'users' => is_array($users) ? $users : []]);
+            moirai_json_response(['ok' => true, 'users' => moirai_fetch_directory_users()]);
             break;
 
         case 'save':
             if (!moirai_is_admin()) {
-                moirai_json_response(['ok' => false, 'error' => 'Geen rechten.'], 403);
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.forbidden')], 403);
             }
             $payload = json_decode((string) file_get_contents('php://input'), true);
             if (!is_array($payload)) {
-                moirai_json_response(['ok' => false, 'error' => 'Ongeldige invoer.'], 400);
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
             }
-            $users = include __DIR__ . '/getusers.php';
-            $device = moirai_save_device(
+            $device = moirai_save_device((string) ($payload['type'] ?? ''), $payload, [], false);
+            moirai_json_response(['ok' => true, 'device' => $device]);
+            break;
+
+        case 'assign':
+            if (!moirai_is_admin()) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.forbidden')], 403);
+            }
+            $payload = json_decode((string) file_get_contents('php://input'), true);
+            if (!is_array($payload)) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
+            }
+            $users = moirai_fetch_directory_users();
+            $userInput = array_key_exists('uitgegeven_aan', $payload) ? $payload['uitgegeven_aan'] : null;
+            $device = moirai_assign_device(
                 (string) ($payload['type'] ?? ''),
-                $payload,
-                is_array($users) ? $users : []
+                (string) ($payload['id'] ?? ''),
+                $userInput,
+                $users
             );
             moirai_json_response(['ok' => true, 'device' => $device]);
             break;
 
         case 'delete':
             if (!moirai_is_admin()) {
-                moirai_json_response(['ok' => false, 'error' => 'Geen rechten.'], 403);
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.forbidden')], 403);
             }
             $payload = json_decode((string) file_get_contents('php://input'), true);
             if (!is_array($payload)) {
-                moirai_json_response(['ok' => false, 'error' => 'Ongeldige invoer.'], 400);
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
             }
             moirai_delete_device(
                 (string) ($payload['type'] ?? ''),
@@ -78,10 +92,10 @@ try {
             break;
 
         default:
-            moirai_json_response(['ok' => false, 'error' => 'Onbekende actie.'], 400);
+            moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.unknown_action')], 400);
     }
 } catch (InvalidArgumentException $error) {
     moirai_json_response(['ok' => false, 'error' => $error->getMessage()], 400);
 } catch (Throwable $error) {
-    moirai_json_response(['ok' => false, 'error' => 'Er ging iets mis. Probeer het later opnieuw.'], 500);
+    moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.generic')], 500);
 }

@@ -2,19 +2,36 @@
 
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/logincheck.php';
+require_once __DIR__ . '/localization.php';
 require_once __DIR__ . '/moirai_data.php';
 
 $isAdmin = moirai_is_admin();
 $userEmail = (string) ($_SESSION['user']['email'] ?? '');
 $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
+$todayIso = date('Y-m-d');
+
+$moiraiJsKeys = [
+    'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.unnamed', 'moirai.filter.all',
+    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.screen',
+    'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
+    'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.save', 'moirai.btn.cancel',
+    'moirai.btn.delete', 'moirai.field.naam', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
+    'moirai.field.ram', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version',
+    'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
+    'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
+    'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
+    'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed',
+];
 
 ?>
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="<?= moirai_h(getHtmlLang()) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Moirai – Apparatenbeheer</title>
+    <title><?= moirai_h(LOC('moirai.title')) ?></title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
     <link rel="manifest" href="site.webmanifest">
     <link rel="stylesheet" href="brand.css">
     <style>
@@ -175,9 +192,15 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
             color: var(--kvt-perkins-blue);
         }
 
-        .device-list {
+        .device-list:not([hidden]) {
             display: grid;
             gap: 10px;
+        }
+
+        #list-loader[hidden],
+        #device-list[hidden],
+        #empty-state[hidden] {
+            display: none !important;
         }
 
         .device-item {
@@ -380,34 +403,110 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
             display: block;
         }
 
+        .history-block {
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--kvt-line);
+        }
+
+        .history-block h3 {
+            margin: 0 0 8px;
+            font-size: 0.95rem;
+            color: var(--kvt-perkins-blue);
+        }
+
         .loader {
             text-align: center;
             color: var(--kvt-muted);
             padding: 24px;
         }
+
+        .modal-backdrop.confirm-layer {
+            z-index: 1200;
+        }
+
+        .confirm-delete-modal {
+            padding: 0;
+            overflow: hidden;
+            border: 2px solid var(--kvt-danger);
+            animation: confirm-delete-pulse 1.15s ease-in-out infinite;
+        }
+
+        @keyframes confirm-delete-pulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(180, 35, 24, 0.55);
+            }
+            50% {
+                box-shadow: 0 0 0 14px rgba(180, 35, 24, 0);
+            }
+        }
+
+        .hazard-tape {
+            overflow: hidden;
+            height: 34px;
+            border-bottom: 2px solid #111827;
+            background: repeating-linear-gradient(
+                -45deg,
+                #facc15 0 14px,
+                #111827 14px 28px
+            );
+            background-size: 40px 40px;
+            animation: hazard-tape-scroll 1.4s linear infinite;
+        }
+
+        @keyframes hazard-tape-scroll {
+            from { background-position: 0 0; }
+            to { background-position: -40px 0; }
+        }
+
+        .confirm-delete-body {
+            padding: 20px;
+        }
+
+        .confirm-delete-body h2 {
+            margin: 0 0 10px;
+            font-size: 1.15rem;
+            color: var(--kvt-danger);
+        }
+
+        .confirm-delete-body p {
+            margin: 0 0 8px;
+            color: var(--kvt-text);
+            line-height: 1.5;
+        }
+
+        .confirm-delete-device {
+            margin: 0 0 16px;
+            font-weight: 700;
+            color: var(--kvt-perkins-blue);
+        }
     </style>
+    <?php renderMoiraiLanguageRailStyles(); ?>
 </head>
 <body>
+<?php renderMoiraiLanguageRail(); ?>
 <div class="page">
     <header class="hero">
         <div class="hero-top">
             <div>
-                <h1>Moirai</h1>
-                <p class="hero-sub">Apparatenoverzicht voor <?= moirai_h($userName) ?><?= $isAdmin ? ' · admin' : '' ?></p>
+                <h1><?= moirai_h(LOC('moirai.title')) ?></h1>
+                <p class="hero-sub">
+                    <?= moirai_h(LOC('moirai.hero.subtitle', $userName)) ?><?= $isAdmin ? ' · ' . moirai_h(LOC('moirai.admin.badge')) : '' ?>
+                </p>
             </div>
             <?php if ($isAdmin): ?>
             <div class="hero-actions">
-                <a class="btn btn-secondary" href="download_enroll.php">Linux Enroll Script</a>
-                <button type="button" class="btn btn-primary" id="add-device-btn">Nieuw apparaat</button>
+                <a class="btn btn-secondary" href="download_enroll.php"><?= moirai_h(LOC('moirai.btn.enroll')) ?></a>
+                <button type="button" class="btn btn-primary" id="add-device-btn"><?= moirai_h(LOC('moirai.btn.add_device')) ?></button>
             </div>
             <?php endif; ?>
         </div>
     </header>
 
     <main class="panel">
-        <div class="tabs" role="tablist" aria-label="Apparaattype">
-            <button type="button" class="tab is-active" data-tab="laptop" role="tab" aria-selected="true">Laptops</button>
-            <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false">Telefoons</button>
+        <div class="tabs" role="tablist" aria-label="<?= moirai_h(LOC('moirai.title')) ?>">
+            <button type="button" class="tab is-active" data-tab="laptop" role="tab" aria-selected="true"><?= moirai_h(LOC('moirai.tab.laptops')) ?></button>
+            <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.phones')) ?></button>
         </div>
 
         <div class="attr-filters" id="attr-filters"></div>
@@ -415,32 +514,32 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
         <div class="filters">
             <div class="filters-row">
                 <div>
-                    <label for="search-input">Zoeken</label>
-                    <input type="search" id="search-input" placeholder="Naam, model, serienummer, IMEI, gebruiker…">
+                    <label for="search-input"><?= moirai_h(LOC('moirai.label.search')) ?></label>
+                    <input type="search" id="search-input" placeholder="<?= moirai_h(LOC('moirai.placeholder.search')) ?>">
                 </div>
                 <div>
-                    <label>Status</label>
+                    <label><?= moirai_h(LOC('moirai.label.status')) ?></label>
                     <div class="status-filters" id="status-filters">
-                        <button type="button" class="chip is-active" data-status="all">Alles</button>
-                        <button type="button" class="chip" data-status="assigned">Uitgegeven</button>
-                        <button type="button" class="chip" data-status="reserve">Reserve</button>
+                        <button type="button" class="chip is-active" data-status="all"><?= moirai_h(LOC('moirai.status.all')) ?></button>
+                        <button type="button" class="chip" data-status="assigned"><?= moirai_h(LOC('moirai.status.assigned')) ?></button>
+                        <button type="button" class="chip" data-status="reserve"><?= moirai_h(LOC('moirai.status.reserve')) ?></button>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="message" id="page-message"></div>
-        <div class="loader" id="list-loader">Apparaten laden…</div>
+        <div class="loader" id="list-loader"><?= moirai_h(LOC('moirai.loader.devices')) ?></div>
         <div class="device-list" id="device-list" hidden></div>
-        <div class="empty-state" id="empty-state" hidden>Geen apparaten gevonden.</div>
+        <div class="empty-state" id="empty-state" hidden><?= moirai_h(LOC('moirai.empty.devices')) ?></div>
     </main>
 </div>
 
 <div class="modal-backdrop" id="device-modal" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div class="modal-header">
-            <h2 id="modal-title">Apparaat</h2>
-            <button type="button" class="close-btn" id="modal-close" aria-label="Sluiten">&times;</button>
+            <h2 id="modal-title"><?= moirai_h(LOC('moirai.modal.device')) ?></h2>
+            <button type="button" class="close-btn" data-close-modal="device-modal" aria-label="<?= moirai_h(LOC('moirai.btn.close')) ?>">&times;</button>
         </div>
         <div class="message" id="modal-message"></div>
         <div id="modal-view"></div>
@@ -449,9 +548,52 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
     </div>
 </div>
 
+<div class="modal-backdrop" id="assign-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="assign-modal-title">
+        <div class="modal-header">
+            <h2 id="assign-modal-title"><?= moirai_h(LOC('moirai.modal.assign')) ?></h2>
+            <button type="button" class="close-btn" data-close-modal="assign-modal" aria-label="<?= moirai_h(LOC('moirai.btn.close')) ?>">&times;</button>
+        </div>
+        <div class="message" id="assign-modal-message"></div>
+        <div id="assign-history"></div>
+        <div id="assign-form-wrap"></div>
+        <div class="modal-actions" id="assign-modal-actions"></div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="history-modal" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
+        <div class="modal-header">
+            <h2 id="history-modal-title"><?= moirai_h(LOC('moirai.modal.history')) ?></h2>
+            <button type="button" class="close-btn" data-close-modal="history-modal" aria-label="<?= moirai_h(LOC('moirai.btn.close')) ?>">&times;</button>
+        </div>
+        <div id="history-modal-body"></div>
+        <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" data-close-modal="history-modal"><?= moirai_h(LOC('moirai.btn.close')) ?></button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop confirm-layer" id="delete-confirm-modal" aria-hidden="true">
+    <div class="modal confirm-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-confirm-title">
+        <div class="hazard-tape" aria-hidden="true"></div>
+        <div class="confirm-delete-body">
+            <h2 id="delete-confirm-title"><?= moirai_h(LOC('moirai.delete.confirm.title')) ?></h2>
+            <p><?= moirai_h(LOC('moirai.delete.confirm.body')) ?></p>
+            <p class="confirm-delete-device" id="delete-confirm-device"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-danger" id="delete-confirm-yes"><?= moirai_h(LOC('moirai.btn.delete_confirm')) ?></button>
+                <button type="button" class="btn btn-secondary" id="delete-confirm-no"><?= moirai_h(LOC('moirai.btn.cancel')) ?></button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     var isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
+    var todayIso = <?= json_encode($todayIso) ?>;
+    var i18n = <?= localizationJsTranslations($moiraiJsKeys) ?>;
     var state = {
         tab: 'laptop',
         query: '',
@@ -461,21 +603,23 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
         devices: [],
         users: [],
         currentDevice: null,
-        editing: false
+        editing: false,
+        pendingDeleteDevice: null
     };
+    var listRequestId = 0;
 
     var filterConfig = {
         laptop: [
-            { name: 'os', label: 'OS' },
-            { name: 'os_versie', label: 'OS versie' },
-            { name: 'model', label: 'Modelnaam' },
-            { name: 'ram', label: 'RAM' }
+            { name: 'os', labelKey: 'moirai.filter.os' },
+            { name: 'os_versie', labelKey: 'moirai.filter.os_version' },
+            { name: 'model', labelKey: 'moirai.filter.model' },
+            { name: 'ram', labelKey: 'moirai.filter.ram' }
         ],
         phone: [
-            { name: 'os', label: 'OS' },
-            { name: 'os_versie', label: 'OS versie' },
-            { name: 'model', label: 'Modelnaam' },
-            { name: 'schermformaat', label: 'Schermformaat' }
+            { name: 'os', labelKey: 'moirai.filter.os' },
+            { name: 'os_versie', labelKey: 'moirai.filter.os_version' },
+            { name: 'model', labelKey: 'moirai.filter.model' },
+            { name: 'schermformaat', labelKey: 'moirai.filter.screen' }
         ]
     };
 
@@ -493,6 +637,28 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
     var modalActions = document.getElementById('modal-actions');
     var modalMessage = document.getElementById('modal-message');
     var modalTitle = document.getElementById('modal-title');
+    var assignModalMessage = document.getElementById('assign-modal-message');
+
+    function t(key) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        var str = i18n[key] || key;
+        args.forEach(function (arg) {
+            str = str.replace('%s', arg);
+        });
+        return str;
+    }
+
+    function openBackdrop(id) {
+        var el = document.getElementById(id);
+        el.classList.add('is-open');
+        el.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeBackdrop(id) {
+        var el = document.getElementById(id);
+        el.classList.remove('is-open');
+        el.setAttribute('aria-hidden', 'true');
+    }
 
     function keyField(type) {
         return type === 'laptop' ? 'serienummer' : 'imei';
@@ -529,36 +695,49 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
         return fetch(url, options || {}).then(function (response) {
             return response.json().then(function (data) {
                 if (!response.ok || !data.ok) {
-                    throw new Error(data.error || 'Verzoek mislukt.');
+                    throw new Error(data.error || t('moirai.error.request_failed'));
                 }
                 return data;
             });
         });
     }
 
-    function loadDevices() {
+    function showListLoading() {
         listLoader.hidden = false;
+        deviceList.innerHTML = '';
         deviceList.hidden = true;
         emptyState.hidden = true;
+    }
+
+    function loadDevices() {
+        var req = ++listRequestId;
+        var tab = state.tab;
+        showListLoading();
         showMessage(pageMessage, '');
 
         var params = {
             action: 'list',
-            type: state.tab,
+            type: tab,
             q: state.query,
             status: state.status
         };
 
-        filterConfig[state.tab].forEach(function (filter) {
+        filterConfig[tab].forEach(function (filter) {
             if (state.attrFilters[filter.name]) {
                 params[filter.name] = state.attrFilters[filter.name];
             }
         });
 
         fetchJson(apiUrl(params)).then(function (data) {
+            if (req !== listRequestId || tab !== state.tab) {
+                return;
+            }
             state.devices = data.devices || [];
             renderList();
         }).catch(function (error) {
+            if (req !== listRequestId || tab !== state.tab) {
+                return;
+            }
             showMessage(pageMessage, error.message);
             listLoader.hidden = true;
         });
@@ -570,9 +749,9 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
 
         attrFiltersEl.innerHTML = config.map(function (filter) {
             var selected = state.attrFilters[filter.name] || '';
-            var html = '<div><label for="filter-' + filter.name + '">' + escapeHtml(filter.label) + '</label>';
+            var html = '<div><label for="filter-' + filter.name + '">' + escapeHtml(t(filter.labelKey)) + '</label>';
             html += '<select id="filter-' + filter.name + '" data-filter="' + filter.name + '">';
-            html += '<option value="">— Alles —</option>';
+            html += '<option value="">' + escapeHtml(t('moirai.filter.all')) + '</option>';
             (options[filter.name] || []).forEach(function (value) {
                 var isSelected = selected === value ? ' selected' : '';
                 html += '<option value="' + escapeHtml(value) + '"' + isSelected + '>' + escapeHtml(value) + '</option>';
@@ -583,17 +762,21 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
     }
 
     function loadFilterOptions() {
-        var params = { action: 'filters', type: state.tab };
+        var tab = state.tab;
+        var params = { action: 'filters', type: tab };
 
-        filterConfig[state.tab].forEach(function (filter) {
+        filterConfig[tab].forEach(function (filter) {
             if (state.attrFilters[filter.name]) {
                 params[filter.name] = state.attrFilters[filter.name];
             }
         });
 
         return fetchJson(apiUrl(params)).then(function (data) {
+            if (tab !== state.tab) {
+                return;
+            }
             state.filterOptions = data.filters || {};
-            filterConfig[state.tab].forEach(function (filter) {
+            filterConfig[tab].forEach(function (filter) {
                 var selected = state.attrFilters[filter.name];
                 if (!selected) {
                     return;
@@ -618,6 +801,7 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
         listLoader.hidden = true;
 
         if (!state.devices.length) {
+            deviceList.innerHTML = '';
             deviceList.hidden = true;
             emptyState.hidden = false;
             return;
@@ -629,12 +813,12 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
             var assigned = device.uitgegeven_aan && device.uitgegeven_aan.email;
             var badgeClass = assigned ? 'badge-assigned' : 'badge-reserve';
             var badgeText = assigned
-                ? 'Uitgegeven aan ' + escapeHtml(device.uitgegeven_aan.naam || device.uitgegeven_aan.email)
-                : 'Reserve';
+                ? t('moirai.badge.assigned', device.uitgegeven_aan.naam || device.uitgegeven_aan.email)
+                : t('moirai.badge.reserve');
             var key = device[keyField(state.tab)] || device.id;
 
             return '<button type="button" class="device-item" data-id="' + escapeHtml(key) + '">' +
-                '<p class="device-name">' + escapeHtml(device.naam || 'Naamloos') + '</p>' +
+                '<p class="device-name">' + escapeHtml(device.naam || t('moirai.unnamed')) + '</p>' +
                 '<p class="device-meta">' + escapeHtml(device.model || '') +
                 (key ? ' · ' + escapeHtml(key) : '') + '</p>' +
                 '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
@@ -645,92 +829,142 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
     function fieldDefinitions(type) {
         if (type === 'laptop') {
             return [
-                { name: 'naam', label: 'Apparaatnaam', required: true },
-                { name: 'model', label: 'Modelnaam' },
-                { name: 'serienummer', label: 'Serienummer', required: true, key: true },
-                { name: 'ram', label: 'RAM hoeveelheid' },
-                { name: 'cpu', label: 'CPU modelnummer' },
-                { name: 'aanschafdatum', label: 'Aanschafdatum', type: 'date' },
-                {
-                    name: 'os',
-                    label: 'OS',
-                    type: 'select',
-                    options: ['Windows', 'OSX', 'Linux']
-                },
-                { name: 'os_versie', label: 'OS versie' }
+                { name: 'naam', labelKey: 'moirai.field.naam', required: true },
+                { name: 'model', labelKey: 'moirai.field.model' },
+                { name: 'serienummer', labelKey: 'moirai.field.serial', required: true, key: true },
+                { name: 'ram', labelKey: 'moirai.field.ram' },
+                { name: 'cpu', labelKey: 'moirai.field.cpu' },
+                { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
+                { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Windows', 'OSX', 'Linux'] },
+                { name: 'os_versie', labelKey: 'moirai.field.os_version' }
             ];
         }
 
         return [
-            { name: 'naam', label: 'Apparaatnaam', required: true },
-            { name: 'model', label: 'Modelnaam' },
-            { name: 'imei', label: 'IMEI', required: true, key: true },
-            { name: 'schermformaat', label: 'Schermformaat' },
-            {
-                name: 'os',
-                label: 'OS',
-                type: 'select',
-                options: ['Android', 'iPhone']
-            },
-            { name: 'os_versie', label: 'OS versie' },
-            { name: 'aanschafdatum', label: 'Aanschafdatum', type: 'date' }
+            { name: 'naam', labelKey: 'moirai.field.naam', required: true },
+            { name: 'model', labelKey: 'moirai.field.model' },
+            { name: 'imei', labelKey: 'moirai.field.imei', required: true, key: true },
+            { name: 'schermformaat', labelKey: 'moirai.field.screen' },
+            { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iPhone'] },
+            { name: 'os_versie', labelKey: 'moirai.field.os_version' },
+            { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' }
         ];
+    }
+
+    function renderHistoryBlock(device) {
+        var html = '';
+        if (device.uitgegeven_aan && device.uitgegeven_aan.email) {
+            html += '<div class="history-block"><h3>' + escapeHtml(t('moirai.history.current')) + '</h3><p>' +
+                escapeHtml((device.uitgegeven_aan.naam || device.uitgegeven_aan.email) + ' · ' +
+                t('moirai.history.since', device.uitgegeven_sinds || '—')) + '</p></div>';
+        }
+        html += '<div class="history-block"><h3>' + escapeHtml(t('moirai.modal.history')) + '</h3>';
+        if (device.historie_uitgegeven && device.historie_uitgegeven.length) {
+            html += '<ul class="history-list">';
+            device.historie_uitgegeven.slice().reverse().forEach(function (entry) {
+                var user = entry.gebruiker || {};
+                html += '<li>' + escapeHtml(t('moirai.history.entry',
+                    user.naam || user.email || t('moirai.unknown_user'),
+                    entry.van || '?',
+                    entry.tot || '?')) + '</li>';
+            });
+            html += '</ul>';
+        } else {
+            html += '<p>' + escapeHtml(t('moirai.history.empty')) + '</p>';
+        }
+        html += '</div>';
+        return html;
     }
 
     function renderDetails(device) {
         var fields = fieldDefinitions(state.tab);
         var html = '<dl class="detail-grid">';
         fields.forEach(function (field) {
-            html += '<div class="detail-row"><dt>' + escapeHtml(field.label) + '</dt><dd>' +
+            html += '<div class="detail-row"><dt>' + escapeHtml(t(field.labelKey)) + '</dt><dd>' +
                 escapeHtml(device[field.name] || '—') + '</dd></div>';
         });
-
-        html += '<div class="detail-row"><dt>Uitgegeven aan</dt><dd>' +
+        html += '<div class="detail-row"><dt>' + escapeHtml(t('moirai.field.assigned_to')) + '</dt><dd>' +
             (device.uitgegeven_aan
                 ? escapeHtml((device.uitgegeven_aan.naam || '') + ' (' + device.uitgegeven_aan.email + ')')
-                : 'Reserve') + '</dd></div>';
-
-        html += '<div class="detail-row"><dt>Historie uitgegeven</dt><dd>';
-        if (device.historie_uitgegeven && device.historie_uitgegeven.length) {
-            html += '<ul class="history-list">';
-            device.historie_uitgegeven.slice().reverse().forEach(function (entry) {
-                var user = entry.gebruiker || {};
-                html += '<li>' + escapeHtml(user.naam || user.email || 'Onbekend') +
-                    ' · ' + escapeHtml(entry.van || '?') + ' t/m ' + escapeHtml(entry.tot || '?') + '</li>';
-            });
-            html += '</ul>';
-        } else {
-            html += '—';
-        }
-        html += '</dd></div></dl>';
+                : escapeHtml(t('moirai.badge.reserve'))) + '</dd></div></dl>';
 
         modalView.innerHTML = html;
         modalView.hidden = false;
         modalForm.hidden = true;
-        modalTitle.textContent = device.naam || 'Apparaat';
+        modalTitle.textContent = device.naam || t('moirai.modal.device');
 
         modalActions.innerHTML = '';
+        var historyBtn = document.createElement('button');
+        historyBtn.type = 'button';
+        historyBtn.className = 'btn btn-secondary';
+        historyBtn.textContent = t('moirai.btn.history');
+        historyBtn.addEventListener('click', function () { openHistoryModal(device); });
+        modalActions.appendChild(historyBtn);
+
         if (isAdmin) {
+            var assignBtn = document.createElement('button');
+            assignBtn.type = 'button';
+            assignBtn.className = 'btn btn-primary';
+            assignBtn.textContent = t('moirai.btn.assign');
+            assignBtn.addEventListener('click', function () { openAssignModal(device); });
+            modalActions.appendChild(assignBtn);
+
             var editBtn = document.createElement('button');
             editBtn.type = 'button';
-            editBtn.className = 'btn btn-primary';
-            editBtn.textContent = 'Bewerken';
-            editBtn.addEventListener('click', function () {
-                openEditForm(device);
-            });
+            editBtn.className = 'btn btn-secondary';
+            editBtn.textContent = t('moirai.btn.edit');
+            editBtn.addEventListener('click', function () { openEditForm(device); });
             modalActions.appendChild(editBtn);
         }
     }
 
     function userOptions(selectedEmail) {
-        var html = '<option value="">— Reserve —</option>';
+        var html = '<option value="">' + escapeHtml(t('moirai.select.reserve')) + '</option>';
         state.users.forEach(function (user) {
             var email = String(user.Email || '').toLowerCase();
             var selected = selectedEmail && email === String(selectedEmail).toLowerCase() ? ' selected' : '';
             html += '<option value="' + escapeHtml(email) + '"' + selected + '>' +
-                escapeHtml((user.Naam || user.Email || 'Onbekend')) + '</option>';
+                escapeHtml((user.Naam || user.Email || t('moirai.unknown_user'))) + '</option>';
         });
         return html;
+    }
+
+    function openHistoryModal(device) {
+        document.getElementById('history-modal-body').innerHTML = renderHistoryBlock(device);
+        document.getElementById('history-modal-title').textContent = t('moirai.modal.history') + ': ' + (device.naam || '');
+        openBackdrop('history-modal');
+    }
+
+    function openAssignModal(device) {
+        showMessage(assignModalMessage, '');
+        ensureUsers().then(function () {
+            document.getElementById('assign-history').innerHTML = renderHistoryBlock(device);
+            document.getElementById('assign-form-wrap').innerHTML =
+                '<form class="form-grid" id="assign-form"><div><label for="assign-user">' +
+                escapeHtml(t('moirai.field.assigned_to')) + '</label>' +
+                '<select id="assign-user" name="uitgegeven_email">' +
+                userOptions(device.uitgegeven_aan ? device.uitgegeven_aan.email : '') +
+                '</select></div></form>';
+            document.getElementById('assign-modal-title').textContent = t('moirai.modal.assign') + ': ' + (device.naam || '');
+            var actions = document.getElementById('assign-modal-actions');
+            actions.innerHTML = '';
+            var saveBtn = document.createElement('button');
+            saveBtn.type = 'button';
+            saveBtn.className = 'btn btn-primary';
+            saveBtn.textContent = t('moirai.btn.save');
+            saveBtn.addEventListener('click', function () { assignDevice(device); });
+            var cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-secondary';
+            cancelBtn.textContent = t('moirai.btn.cancel');
+            cancelBtn.addEventListener('click', function () { closeBackdrop('assign-modal'); });
+            actions.appendChild(saveBtn);
+            actions.appendChild(cancelBtn);
+            openBackdrop('assign-modal');
+        }).catch(function (error) {
+            showMessage(assignModalMessage, error.message);
+            openBackdrop('assign-modal');
+        });
     }
 
     function openEditForm(device, isNew) {
@@ -741,14 +975,17 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
 
         fields.forEach(function (field) {
             var value = device[field.name] || '';
-            html += '<div><label for="field-' + field.name + '">' + escapeHtml(field.label) + '</label>';
+            if (isNew && field.type === 'date' && !value) {
+                value = todayIso;
+            }
+            html += '<div><label for="field-' + field.name + '">' + escapeHtml(t(field.labelKey)) + '</label>';
             if (field.type === 'date') {
-                html += '<input type="date" id="field-' + field.name + '" name="' + field.name + '" value="' + escapeHtml(value) + '"' +
+                html += '<input type="date" id="field-' + field.name + '" name="' + field.name + '" value="' + escapeHtml(value) + '" max="' + escapeHtml(todayIso) + '"' +
                     (field.required ? ' required' : '') + '>';
             } else if (field.type === 'select') {
                 html += '<select id="field-' + field.name + '" name="' + field.name + '"' +
                     (field.required ? ' required' : '') + '>';
-                html += '<option value="">— Kies —</option>';
+                html += '<option value="">' + escapeHtml(t('moirai.select.choose')) + '</option>';
                 (field.options || []).forEach(function (option) {
                     var selected = value === option ? ' selected' : '';
                     html += '<option value="' + escapeHtml(option) + '"' + selected + '>' +
@@ -757,32 +994,28 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
                 html += '</select>';
             } else {
                 html += '<input type="text" id="field-' + field.name + '" name="' + field.name + '" value="' + escapeHtml(value) + '"' +
-                    (field.required ? ' required' : '') + (field.key && !isNew ? '' : '') + '>';
+                    (field.required ? ' required' : '') + '>';
             }
             html += '</div>';
         });
-
-        html += '<div><label for="field-uitgegeven">Uitgegeven aan</label>' +
-            '<select id="field-uitgegeven" name="uitgegeven_email">' +
-            userOptions(device.uitgegeven_aan ? device.uitgegeven_aan.email : '') +
-            '</select></div></form>';
+        html += '</form>';
 
         modalForm.innerHTML = html;
         modalForm.hidden = false;
         modalView.hidden = true;
-        modalTitle.textContent = isNew ? 'Nieuw apparaat' : 'Apparaat bewerken';
+        modalTitle.textContent = isNew ? t('moirai.modal.new') : t('moirai.modal.edit');
 
         modalActions.innerHTML = '';
         var saveBtn = document.createElement('button');
         saveBtn.type = 'button';
         saveBtn.className = 'btn btn-primary';
-        saveBtn.textContent = 'Opslaan';
+        saveBtn.textContent = t('moirai.btn.save');
         saveBtn.addEventListener('click', saveDevice);
 
         var cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.className = 'btn btn-secondary';
-        cancelBtn.textContent = 'Annuleren';
+        cancelBtn.textContent = t('moirai.btn.cancel');
         cancelBtn.addEventListener('click', function () {
             if (isNew) {
                 closeModal();
@@ -798,25 +1031,20 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
             var deleteBtn = document.createElement('button');
             deleteBtn.type = 'button';
             deleteBtn.className = 'btn btn-danger';
-            deleteBtn.textContent = 'Verwijderen';
+            deleteBtn.textContent = t('moirai.btn.delete');
             deleteBtn.addEventListener('click', function () {
-                if (!confirm('Weet je zeker dat je dit apparaat wilt verwijderen?')) {
-                    return;
-                }
-                deleteDevice(device);
+                openDeleteConfirm(device);
             });
             modalActions.appendChild(deleteBtn);
         }
     }
 
     function openModal() {
-        modal.classList.add('is-open');
-        modal.setAttribute('aria-hidden', 'false');
+        openBackdrop('device-modal');
     }
 
     function closeModal() {
-        modal.classList.remove('is-open');
-        modal.setAttribute('aria-hidden', 'true');
+        closeBackdrop('device-modal');
         state.currentDevice = null;
         state.editing = false;
         showMessage(modalMessage, '');
@@ -860,7 +1088,29 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
             payload[field.name] = formData.get(field.name) || '';
         });
 
-        var selectedEmail = formData.get('uitgegeven_email');
+        fetchJson('devices_api.php?action=save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function () {
+            closeModal();
+            loadFilterOptions().then(loadDevices);
+        }).catch(function (error) {
+            showMessage(modalMessage, error.message);
+        });
+    }
+
+    function assignDevice(device) {
+        var form = document.getElementById('assign-form');
+        if (!form) {
+            return;
+        }
+        var selectedEmail = new FormData(form).get('uitgegeven_email');
+        var payload = {
+            type: state.tab,
+            id: device.id,
+            uitgegeven_aan: null
+        };
         if (selectedEmail) {
             var user = state.users.find(function (item) {
                 return String(item.Email || '').toLowerCase() === String(selectedEmail).toLowerCase();
@@ -872,20 +1122,42 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
                     email: user.Email
                 };
             }
-        } else {
-            payload.uitgegeven_aan = null;
         }
 
-        fetchJson('devices_api.php?action=save', {
+        fetchJson('devices_api.php?action=assign', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         }).then(function () {
+            closeBackdrop('assign-modal');
             closeModal();
             loadFilterOptions().then(loadDevices);
         }).catch(function (error) {
-            showMessage(modalMessage, error.message);
+            showMessage(assignModalMessage, error.message);
         });
+    }
+
+    function openDeleteConfirm(device) {
+        state.pendingDeleteDevice = device;
+        var nameEl = document.getElementById('delete-confirm-device');
+        if (nameEl) {
+            nameEl.textContent = device.naam || t('moirai.unnamed');
+        }
+        openBackdrop('delete-confirm-modal');
+    }
+
+    function closeDeleteConfirm() {
+        state.pendingDeleteDevice = null;
+        closeBackdrop('delete-confirm-modal');
+    }
+
+    function confirmDeleteDevice() {
+        if (!state.pendingDeleteDevice) {
+            return;
+        }
+        var device = state.pendingDeleteDevice;
+        closeDeleteConfirm();
+        deleteDevice(device);
     }
 
     function deleteDevice(device) {
@@ -912,9 +1184,20 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
             });
             tab.classList.add('is-active');
             tab.setAttribute('aria-selected', 'true');
+            listRequestId++;
+            state.devices = [];
+            deviceList.innerHTML = '';
+            showListLoading();
             state.tab = tab.getAttribute('data-tab');
             resetAttrFilters();
-            loadFilterOptions().then(loadDevices);
+            var tabLoadId = listRequestId;
+            var tabName = state.tab;
+            loadFilterOptions().then(function () {
+                if (tabLoadId !== listRequestId || tabName !== state.tab) {
+                    return;
+                }
+                loadDevices();
+            });
         });
     });
 
@@ -954,33 +1237,44 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
         openDevice(item.getAttribute('data-id'));
     });
 
-    document.getElementById('modal-close').addEventListener('click', closeModal);
-    modal.addEventListener('click', function (event) {
-        if (event.target === modal) {
-            closeModal();
-        }
+    document.querySelectorAll('[data-close-modal]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            closeBackdrop(btn.getAttribute('data-close-modal'));
+        });
     });
+
+    ['device-modal', 'assign-modal', 'history-modal', 'delete-confirm-modal'].forEach(function (id) {
+        var backdrop = document.getElementById(id);
+        backdrop.addEventListener('click', function (event) {
+            if (event.target === backdrop) {
+                if (id === 'delete-confirm-modal') {
+                    closeDeleteConfirm();
+                    return;
+                }
+                closeBackdrop(id);
+                if (id === 'device-modal') {
+                    state.currentDevice = null;
+                    state.editing = false;
+                    showMessage(modalMessage, '');
+                }
+            }
+        });
+    });
+
+    document.getElementById('delete-confirm-yes').addEventListener('click', confirmDeleteDevice);
+    document.getElementById('delete-confirm-no').addEventListener('click', closeDeleteConfirm);
 
     if (isAdmin) {
         document.getElementById('add-device-btn').addEventListener('click', function () {
-            ensureUsers().then(function () {
-                var emptyDevice = { id: '', historie_uitgegeven: [], uitgegeven_aan: null };
-                openEditForm(emptyDevice, true);
-                openModal();
-            }).catch(function (error) {
-                showMessage(pageMessage, error.message);
-            });
-        });
-    }
-
-    if (isAdmin) {
-        ensureUsers().catch(function (error) {
-            showMessage(pageMessage, error.message);
+            var emptyDevice = { id: '', historie_uitgegeven: [], uitgegeven_aan: null, aanschafdatum: todayIso };
+            openEditForm(emptyDevice, true);
+            openModal();
         });
     }
 
     loadFilterOptions().then(loadDevices);
 })();
 </script>
+<?php renderMoiraiLanguageRailScript(); ?>
 </body>
 </html>

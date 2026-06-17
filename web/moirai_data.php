@@ -54,6 +54,168 @@ function moirai_is_admin(): bool
     return !empty($_SESSION['user']['admin']);
 }
 
+function moirai_loc(string $key, mixed ...$args): string
+{
+    if (function_exists('LOC')) {
+        return LOC($key, ...$args);
+    }
+
+    return $args !== [] ? sprintf($key, ...$args) : $key;
+}
+
+function moirai_fetch_directory_users(): array
+{
+    global $graphCredentials;
+
+    if (empty($graphCredentials['tenantId']) || empty($graphCredentials['clientId']) || empty($graphCredentials['clientSecret'])) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.users_fetch'));
+    }
+
+    try {
+        $users = include __DIR__ . '/getusers_fetch.php';
+    } catch (Throwable) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.users_fetch'));
+    }
+
+    return is_array($users) ? $users : [];
+}
+
+function moirai_validate_ram(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    if (!preg_match('/^(\d+(?:[.,]\d+)?)\s*(b|byte|bytes|kb|mb|gb|tb)?$/iu', $value, $matches)) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.ram_invalid'));
+    }
+
+    $amount = str_replace(',', '.', $matches[1]);
+    $unit = strtolower($matches[2] ?? 'b');
+    if ($unit === 'byte') {
+        $unit = 'b';
+    }
+
+    $unitMap = [
+        'b' => 'B',
+        'bytes' => 'B',
+        'kb' => 'KB',
+        'mb' => 'MB',
+        'gb' => 'GB',
+        'tb' => 'TB',
+    ];
+
+    if (!isset($unitMap[$unit])) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.ram_invalid'));
+    }
+
+    $normalizedAmount = rtrim(rtrim(number_format((float) $amount, 2, '.', ''), '0'), '.');
+
+    return $normalizedAmount . ' ' . $unitMap[$unit];
+}
+
+function moirai_validate_aanschafdatum(string $value, bool $defaultToday = false): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return $defaultToday ? date('Y-m-d') : '';
+    }
+
+    $date = DateTimeImmutable::createFromFormat('Y-m-d', $value);
+    $errors = DateTimeImmutable::getLastErrors();
+    if ($date === false || ($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.date_invalid'));
+    }
+
+    if ($date->format('Y-m-d') > date('Y-m-d')) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.date_future'));
+    }
+
+    return $date->format('Y-m-d');
+}
+
+function moirai_validate_schermformaat(string $value): string
+{
+    $value = str_replace(',', '.', trim($value));
+    if ($value === '') {
+        return '';
+    }
+
+    if (!is_numeric($value) || (float) $value <= 0) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.screen_invalid'));
+    }
+
+    return rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
+}
+
+function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool $isNew): void
+{
+    if ($typeKey === 'laptops') {
+        $sanitized['ram'] = moirai_validate_ram($sanitized['ram']);
+        $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'], $isNew);
+        $sanitized['os'] = moirai_normalize_laptop_os($sanitized['os']);
+        return;
+    }
+
+    $sanitized['schermformaat'] = moirai_validate_schermformaat($sanitized['schermformaat']);
+    $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'], $isNew);
+    $sanitized['os'] = moirai_normalize_phone_os($sanitized['os']);
+}
+
+function moirai_persist_device_assignment(string $type, array $device): array
+{
+    $typeKey = moirai_type_key($type);
+    if ($typeKey === null) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
+    }
+
+    $keyField = moirai_device_key_field($typeKey);
+    $keyValue = trim((string) ($device['id'] ?? $device[$keyField] ?? ''));
+    if ($keyValue === '') {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
+    }
+
+    $assignment = moirai_assignment_columns(
+        $device['uitgegeven_aan'] ?? null,
+        $device['uitgegeven_sinds'] ?? null,
+        $device['historie_uitgegeven'] ?? []
+    );
+
+    $table = moirai_table_name($typeKey);
+    $pdo = moirai_db();
+    $stmt = $pdo->prepare(
+        'UPDATE ' . $table . ' SET uitgegeven_user_id = :uitgegeven_user_id, uitgegeven_naam = :uitgegeven_naam, '
+        . 'uitgegeven_email = :uitgegeven_email, uitgegeven_sinds = :uitgegeven_sinds, historie_json = :historie_json '
+        . 'WHERE ' . $keyField . ' = :key'
+    );
+    $stmt->execute($assignment + ['key' => $keyValue]);
+
+    if ($stmt->rowCount() === 0) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
+    }
+
+    $saved = moirai_get_device($type, $keyValue);
+    if ($saved === null) {
+        throw new RuntimeException(moirai_loc('moirai.error.save_failed'));
+    }
+
+    return $saved;
+}
+
+function moirai_assign_device(string $type, string $key, mixed $userInput, array $allowedUsers): array
+{
+    $existing = moirai_get_device($type, $key);
+    if ($existing === null) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
+    }
+
+    $validatedUser = moirai_validate_user_assignment($userInput, $allowedUsers);
+    $device = moirai_apply_assignment_history($existing, $validatedUser);
+
+    return moirai_persist_device_assignment($type, $device);
+}
+
 function moirai_h(?string $value): string
 {
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -194,7 +356,7 @@ function moirai_normalize_phone_os(string $value): string
         }
     }
 
-    throw new InvalidArgumentException('OS moet Android of iPhone zijn.');
+    throw new InvalidArgumentException(moirai_loc('moirai.error.os_phone_invalid'));
 }
 
 function moirai_normalize_laptop_os(string $value): string
@@ -210,7 +372,7 @@ function moirai_normalize_laptop_os(string $value): string
         }
     }
 
-    throw new InvalidArgumentException('OS moet Windows, OSX of Linux zijn.');
+    throw new InvalidArgumentException(moirai_loc('moirai.error.os_laptop_invalid'));
 }
 
 function moirai_filter_fields_for_type(string $typeKey): array
@@ -647,7 +809,7 @@ function moirai_validate_user_assignment(?array $user, array $allowedUsers): ?ar
         }
     }
 
-    throw new InvalidArgumentException('Uitgegeven aan moet een geldige gebruiker uit de directory zijn.');
+    throw new InvalidArgumentException(moirai_loc('moirai.error.assign_invalid_user'));
 }
 
 function moirai_assignment_columns(?array $user, ?string $since, array $historie): array
@@ -663,11 +825,11 @@ function moirai_assignment_columns(?array $user, ?string $since, array $historie
     ];
 }
 
-function moirai_save_device(string $type, array $input, array $allowedUsers): array
+function moirai_save_device(string $type, array $input, array $allowedUsers, bool $updateAssignment = false): array
 {
     $typeKey = moirai_type_key($type);
     if ($typeKey === null) {
-        throw new InvalidArgumentException('Onbekend apparaattype.');
+        throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
     }
 
     $fields = $typeKey === 'laptops' ? MOIRAI_LAPTOP_FIELDS : MOIRAI_PHONE_FIELDS;
@@ -676,18 +838,14 @@ function moirai_save_device(string $type, array $input, array $allowedUsers): ar
     $keyValue = $sanitized[$keyField];
 
     if ($sanitized['naam'] === '') {
-        throw new InvalidArgumentException('Apparaatnaam is verplicht.');
+        throw new InvalidArgumentException(moirai_loc('moirai.error.name_required'));
     }
     if ($keyValue === '') {
         throw new InvalidArgumentException(
-            $typeKey === 'laptops' ? 'Serienummer is verplicht.' : 'IMEI is verplicht.'
+            $typeKey === 'laptops'
+                ? moirai_loc('moirai.error.serial_required')
+                : moirai_loc('moirai.error.imei_required')
         );
-    }
-
-    if ($typeKey === 'phones') {
-        $sanitized['os'] = moirai_normalize_phone_os($sanitized['os']);
-    } else {
-        $sanitized['os'] = moirai_normalize_laptop_os($sanitized['os']);
     }
 
     $originalKey = trim((string) ($input['original_key'] ?? $input['id'] ?? ''));
@@ -697,15 +855,24 @@ function moirai_save_device(string $type, array $input, array $allowedUsers): ar
         : moirai_get_device($type, $originalKey);
 
     if (!$isNew && $existing === null) {
-        throw new InvalidArgumentException('Apparaat niet gevonden.');
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
     }
 
+    moirai_validate_device_fields($typeKey, $sanitized, $isNew);
+
     $device = array_merge($existing ?? [], $sanitized, ['id' => $keyValue]);
-    $requestedUser = array_key_exists('uitgegeven_aan', $input)
-        ? $input['uitgegeven_aan']
-        : ($existing['uitgegeven_aan'] ?? null);
-    $validatedUser = moirai_validate_user_assignment($requestedUser, $allowedUsers);
-    $device = moirai_apply_assignment_history($device, $validatedUser);
+
+    if ($updateAssignment) {
+        $requestedUser = array_key_exists('uitgegeven_aan', $input)
+            ? $input['uitgegeven_aan']
+            : ($existing['uitgegeven_aan'] ?? null);
+        $validatedUser = moirai_validate_user_assignment($requestedUser, $allowedUsers);
+        $device = moirai_apply_assignment_history($device, $validatedUser);
+    } elseif (is_array($existing)) {
+        $device['uitgegeven_aan'] = $existing['uitgegeven_aan'] ?? null;
+        $device['uitgegeven_sinds'] = $existing['uitgegeven_sinds'] ?? null;
+        $device['historie_uitgegeven'] = $existing['historie_uitgegeven'] ?? [];
+    }
 
     $assignment = moirai_assignment_columns(
         $device['uitgegeven_aan'] ?? null,
@@ -751,8 +918,8 @@ function moirai_save_device(string $type, array $input, array $allowedUsers): ar
             if (str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
                 throw new InvalidArgumentException(
                     $typeKey === 'laptops'
-                        ? 'Dit serienummer bestaat al.'
-                        : 'Deze IMEI bestaat al.'
+                        ? moirai_loc('moirai.error.serial_duplicate')
+                        : moirai_loc('moirai.error.imei_duplicate')
                 );
             }
             throw $error;
@@ -764,7 +931,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers): ar
                 $delete = $pdo->prepare("DELETE FROM {$table} WHERE {$keyField} = :original");
                 $delete->execute(['original' => $originalKey]);
                 if ($delete->rowCount() === 0) {
-                    throw new InvalidArgumentException('Apparaat niet gevonden.');
+                    throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
                 }
 
                 $insert = $pdo->prepare($insertSql);
@@ -788,22 +955,23 @@ function moirai_save_device(string $type, array $input, array $allowedUsers): ar
             }
         } else {
             $setParts = [];
+            $updateParams = ['lookup_key' => $keyValue];
             foreach ($columns as $column) {
                 if ($column === $keyField) {
                     continue;
                 }
                 $setParts[] = $column . ' = :' . $column;
+                $updateParams[$column] = $params[$column];
             }
             $updateSql = 'UPDATE ' . $table . ' SET ' . implode(', ', $setParts) . ' WHERE ' . $keyField . ' = :lookup_key';
-            $params['lookup_key'] = $keyValue;
             $stmt = $pdo->prepare($updateSql);
-            $stmt->execute($params);
+            $stmt->execute($updateParams);
         }
     }
 
     $saved = moirai_get_device($type, $keyValue);
     if ($saved === null) {
-        throw new RuntimeException('Apparaat kon niet worden opgeslagen.');
+        throw new RuntimeException(moirai_loc('moirai.error.save_failed'));
     }
 
     if ($isNew) {
@@ -820,7 +988,7 @@ function moirai_delete_device(string $type, string $key): void
     $typeKey = moirai_type_key($type);
     $key = trim($key);
     if ($typeKey === null || $key === '') {
-        throw new InvalidArgumentException('Onbekend apparaattype of sleutel.');
+        throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
     }
 
     $table = moirai_table_name($typeKey);
@@ -829,14 +997,14 @@ function moirai_delete_device(string $type, string $key): void
 
     $device = moirai_get_device($type, $key);
     if ($device === null) {
-        throw new InvalidArgumentException('Apparaat niet gevonden.');
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
     }
 
     $stmt = $pdo->prepare("DELETE FROM {$table} WHERE {$keyField} = :key");
     $stmt->execute(['key' => $key]);
 
     if ($stmt->rowCount() === 0) {
-        throw new InvalidArgumentException('Apparaat niet gevonden.');
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
     }
 
     moirai_cache_remove_device_values($typeKey, $device);

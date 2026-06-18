@@ -930,7 +930,7 @@ $moiraiJsKeys = [
             { name: 'imei', labelKey: 'moirai.field.imei', required: true, key: true },
             { name: 'schermformaat', labelKey: 'moirai.field.screen' },
             { name: 'opslag', labelKey: 'moirai.field.storage' },
-            { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iPhone'] },
+            { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iOS'] },
             { name: 'os_versie', labelKey: 'moirai.field.os_version' },
             { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' }
         ];

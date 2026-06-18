@@ -114,7 +114,7 @@ const TRANSLATIONS = [
         'moirai.error.date_future' => 'Aanschafdatum mag niet in de toekomst liggen.',
         'moirai.error.screen_invalid' => 'Schermformaat moet een geldige inch-waarde zijn (bijv. 6.1 of 6.1 inch).',
         'moirai.error.os_laptop_invalid' => 'OS moet Windows, OSX of Linux zijn.',
-        'moirai.error.os_phone_invalid' => 'OS moet Android of iPhone zijn.',
+        'moirai.error.os_phone_invalid' => 'OS moet Android of iOS zijn.',
     ],
 
     'en' => [
@@ -205,7 +205,7 @@ const TRANSLATIONS = [
         'moirai.error.date_future' => 'Purchase date cannot be in the future.',
         'moirai.error.screen_invalid' => 'Screen size must be a valid inch value (e.g. 6.1 or 6.1 inch).',
         'moirai.error.os_laptop_invalid' => 'OS must be Windows, OSX or Linux.',
-        'moirai.error.os_phone_invalid' => 'OS must be Android or iPhone.',
+        'moirai.error.os_phone_invalid' => 'OS must be Android or iOS.',
     ],
 
     'de' => [
@@ -295,7 +295,7 @@ const TRANSLATIONS = [
         'moirai.error.date_future' => 'Anschaffungsdatum darf nicht in der Zukunft liegen.',
         'moirai.error.screen_invalid' => 'Bildschirmgröße muss ein gültiger Zoll-Wert sein (z. B. 6.1 oder 6.1 inch).',
         'moirai.error.os_laptop_invalid' => 'OS muss Windows, OSX oder Linux sein.',
-        'moirai.error.os_phone_invalid' => 'OS muss Android oder iPhone sein.',
+        'moirai.error.os_phone_invalid' => 'OS muss Android oder iOS sein.',
     ],
 
     'fr' => [
@@ -385,7 +385,7 @@ const TRANSLATIONS = [
         'moirai.error.date_future' => 'La date d\'achat ne peut pas être dans le futur.',
         'moirai.error.screen_invalid' => 'La taille d\'écran doit être une valeur en pouces valide (p. ex. 6.1 ou 6.1 inch).',
         'moirai.error.os_laptop_invalid' => 'L\'OS doit être Windows, OSX ou Linux.',
-        'moirai.error.os_phone_invalid' => 'L\'OS doit être Android ou iPhone.',
+        'moirai.error.os_phone_invalid' => 'L\'OS doit être Android ou iOS.',
     ],
 ];
 

@@ -32,7 +32,7 @@ const MOIRAI_LAPTOP_OS_OPTIONS = [
 
 const MOIRAI_PHONE_OS_OPTIONS = [
     'Android',
-    'iPhone',
+    'iOS',
 ];
 
 const MOIRAI_LAPTOP_FILTER_FIELDS = [

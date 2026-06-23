@@ -12,6 +12,7 @@ const MOIRAI_LAPTOP_FIELDS = [
     'aanschafdatum',
     'os',
     'os_versie',
+    'toetsenbord',
 ];
 
 const MOIRAI_PHONE_FIELDS = [
@@ -35,12 +36,39 @@ const MOIRAI_PHONE_OS_OPTIONS = [
     'iOS',
 ];
 
+const MOIRAI_LAPTOP_KEYBOARD_OPTIONS = [
+    'QWERTY (US)',
+    'QWERTY (UK)',
+    'QWERTY (Nordic)',
+    'QWERTY (Spanish)',
+    'AZERTY (FR/BE)',
+    'QWERTZ (DE)',
+    'QWERTZ (CH)',
+    'Colemak (alternative)',
+    'Dvorak (alternative)',
+    'Workman (alternative)',
+    'Bépo (FR)',
+    'Norman (alternative)',
+    'Portuguese (BR)',
+    'Turkish Q',
+    'Turkish F',
+    'Cyrillic (RU)',
+    'Arabic (standard)',
+    'Hebrew (standard)',
+    'Japanese (JIS)',
+    'Korean (standard)',
+    'Chinese (Pinyin)',
+    'Thai (standard)',
+    'Greek (standard)',
+];
+
 const MOIRAI_LAPTOP_FILTER_FIELDS = [
     'os',
     'os_versie',
     'model',
     'ram',
     'opslag',
+    'toetsenbord',
 ];
 
 const MOIRAI_PHONE_FILTER_FIELDS = [
@@ -200,19 +228,27 @@ function moirai_validate_schermformaat(string $value): string
 
 function moirai_normalize_filter_options(string $typeKey, array $options): array
 {
-    if ($typeKey !== 'phones' || !isset($options['schermformaat']) || !is_array($options['schermformaat'])) {
-        return $options;
-    }
-
-    $normalized = [];
-    foreach ($options['schermformaat'] as $value) {
-        $formatted = moirai_normalize_schermformaat_display((string) $value);
-        if ($formatted !== '') {
-            $normalized[] = $formatted;
+    if ($typeKey === 'phones' && isset($options['schermformaat']) && is_array($options['schermformaat'])) {
+        $normalized = [];
+        foreach ($options['schermformaat'] as $value) {
+            $formatted = moirai_normalize_schermformaat_display((string) $value);
+            if ($formatted !== '') {
+                $normalized[] = $formatted;
+            }
         }
+        $options['schermformaat'] = moirai_sort_filter_values(array_values(array_unique($normalized)));
     }
 
-    $options['schermformaat'] = moirai_sort_filter_values(array_values(array_unique($normalized)));
+    if ($typeKey === 'laptops' && isset($options['toetsenbord']) && is_array($options['toetsenbord'])) {
+        $normalized = [];
+        foreach ($options['toetsenbord'] as $value) {
+            $formatted = moirai_normalize_laptop_keyboard_display((string) $value);
+            if ($formatted !== '') {
+                $normalized[] = $formatted;
+            }
+        }
+        $options['toetsenbord'] = moirai_sort_filter_values(array_values(array_unique($normalized)));
+    }
 
     return $options;
 }
@@ -224,6 +260,7 @@ function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool 
         $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
         $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'], $isNew);
         $sanitized['os'] = moirai_normalize_laptop_os($sanitized['os']);
+        $sanitized['toetsenbord'] = moirai_normalize_laptop_keyboard($sanitized['toetsenbord']);
         return;
     }
 
@@ -381,6 +418,7 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'laptops', 'os_versie', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'laptops', 'os', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'laptops', 'opslag', "TEXT NOT NULL DEFAULT ''");
+    moirai_ensure_column($pdo, 'laptops', 'toetsenbord', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'phones', 'opslag', "TEXT NOT NULL DEFAULT ''");
     moirai_migrate_laptop_os_column($pdo);
 }
@@ -445,6 +483,66 @@ function moirai_normalize_laptop_os(string $value): string
     }
 
     throw new InvalidArgumentException(moirai_loc('moirai.error.os_laptop_invalid'));
+}
+
+function moirai_laptop_keyboard_aliases(): array
+{
+    return [
+        'QWERTY' => 'QWERTY (US)',
+        'AZERTY' => 'AZERTY (FR/BE)',
+        'QWERTZ' => 'QWERTZ (DE)',
+        'QWERTZ (Swiss)' => 'QWERTZ (CH)',
+        'Colemak' => 'Colemak (alternative)',
+        'Dvorak' => 'Dvorak (alternative)',
+        'Workman' => 'Workman (alternative)',
+        'Bépo' => 'Bépo (FR)',
+        'Norman' => 'Norman (alternative)',
+        'Nordic' => 'QWERTY (Nordic)',
+        'Spanish' => 'QWERTY (Spanish)',
+        'Portuguese (Brazil)' => 'Portuguese (BR)',
+        'Cyrillic' => 'Cyrillic (RU)',
+        'Arabic' => 'Arabic (standard)',
+        'Hebrew' => 'Hebrew (standard)',
+        'Korean' => 'Korean (standard)',
+        'Thai' => 'Thai (standard)',
+        'Greek' => 'Greek (standard)',
+    ];
+}
+
+function moirai_normalize_laptop_keyboard(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    foreach (moirai_laptop_keyboard_aliases() as $legacy => $canonical) {
+        if (strcasecmp($value, $legacy) === 0) {
+            return $canonical;
+        }
+    }
+
+    foreach (MOIRAI_LAPTOP_KEYBOARD_OPTIONS as $option) {
+        if (strcasecmp($value, $option) === 0) {
+            return $option;
+        }
+    }
+
+    throw new InvalidArgumentException(moirai_loc('moirai.error.keyboard_invalid'));
+}
+
+function moirai_normalize_laptop_keyboard_display(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    try {
+        return moirai_normalize_laptop_keyboard($value);
+    } catch (InvalidArgumentException) {
+        return $value;
+    }
 }
 
 function moirai_filter_fields_for_type(string $typeKey): array
@@ -772,6 +870,7 @@ function moirai_row_to_device(array $row, string $typeKey): array
         $device['cpu'] = (string) ($row['cpu'] ?? '');
         $device['os'] = (string) ($row['os'] ?? $row['besturingssysteem'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
+        $device['toetsenbord'] = moirai_normalize_laptop_keyboard_display((string) ($row['toetsenbord'] ?? ''));
     } else {
         $device['schermformaat'] = moirai_normalize_schermformaat_display((string) ($row['schermformaat'] ?? ''));
         $device['opslag'] = (string) ($row['opslag'] ?? '');
@@ -975,6 +1074,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'aanschafdatum' => $sanitized['aanschafdatum'],
             'os' => $sanitized['os'],
             'os_versie' => $sanitized['os_versie'],
+            'toetsenbord' => $sanitized['toetsenbord'],
         ] + $assignment;
     } else {
         $params = [
@@ -1124,6 +1224,10 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             $deviceValue = moirai_normalize_schermformaat_display($deviceValue);
             $value = moirai_normalize_schermformaat_display($value);
         }
+        if ($field === 'toetsenbord') {
+            $deviceValue = moirai_normalize_laptop_keyboard_display($deviceValue);
+            $value = moirai_normalize_laptop_keyboard_display($value);
+        }
         if (strcasecmp($deviceValue, $value) !== 0) {
             return false;
         }
@@ -1141,6 +1245,7 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             (string) ($device['cpu'] ?? ''),
             (string) ($device['os'] ?? ''),
             (string) ($device['os_versie'] ?? ''),
+            (string) ($device['toetsenbord'] ?? ''),
             (string) ($device['schermformaat'] ?? ''),
             (string) ($device['aanschafdatum'] ?? ''),
             (string) ($device['uitgegeven_aan']['naam'] ?? ''),

@@ -12,11 +12,11 @@ $todayIso = date('Y-m-d');
 
 $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.unnamed', 'moirai.filter.all',
-    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen',
+    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
-    'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version',
+    'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
@@ -632,6 +632,7 @@ $moiraiJsKeys = [
 (function () {
     var isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
     var todayIso = <?= json_encode($todayIso) ?>;
+    var laptopKeyboardOptions = <?= json_encode(MOIRAI_LAPTOP_KEYBOARD_OPTIONS, JSON_UNESCAPED_UNICODE) ?>;
     var i18n = <?= localizationJsTranslations($moiraiJsKeys) ?>;
     var state = {
         tab: 'laptop',
@@ -653,7 +654,8 @@ $moiraiJsKeys = [
             { name: 'os_versie', labelKey: 'moirai.filter.os_version' },
             { name: 'model', labelKey: 'moirai.filter.model' },
             { name: 'ram', labelKey: 'moirai.filter.ram' },
-            { name: 'opslag', labelKey: 'moirai.filter.storage' }
+            { name: 'opslag', labelKey: 'moirai.filter.storage' },
+            { name: 'toetsenbord', labelKey: 'moirai.filter.keyboard' }
         ],
         phone: [
             { name: 'os', labelKey: 'moirai.filter.os' },
@@ -921,7 +923,8 @@ $moiraiJsKeys = [
                 { name: 'cpu', labelKey: 'moirai.field.cpu' },
                 { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
                 { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Windows', 'OSX', 'Linux'] },
-                { name: 'os_versie', labelKey: 'moirai.field.os_version' }
+                { name: 'os_versie', labelKey: 'moirai.field.os_version' },
+                { name: 'toetsenbord', labelKey: 'moirai.field.keyboard', type: 'select', options: laptopKeyboardOptions, defaultNew: 'QWERTY (US)' }
             ];
         }
 
@@ -1062,6 +1065,9 @@ $moiraiJsKeys = [
             var value = device[field.name] || '';
             if (isNew && field.type === 'date' && !value) {
                 value = todayIso;
+            }
+            if (isNew && field.defaultNew && !value) {
+                value = field.defaultNew;
             }
             html += '<div><label for="field-' + field.name + '">' + escapeHtml(t(field.labelKey)) + '</label>';
             if (field.type === 'date') {

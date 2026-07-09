@@ -908,7 +908,7 @@ $moiraiJsKeys = [
             }
         });
 
-        fetchJson(apiUrl(params)).then(function (data) {
+        return fetchJson(apiUrl(params)).then(function (data) {
             if (req !== listRequestId || tab !== state.tab) {
                 return;
             }
@@ -1077,14 +1077,33 @@ $moiraiJsKeys = [
     }
 
     function deviceDeepLink(device, type) {
-        var deviceId = String(device.id || device[keyField(type)] || '');
+        var deviceId = String(device[keyField(type)] || device.id || '').trim();
         var url = new URL(window.location.origin + window.location.pathname);
-        var lang = new URL(window.location.href).searchParams.get('lang');
-        if (lang) {
-            url.searchParams.set('lang', lang);
-        }
-        url.hash = (type === 'laptop' ? 'l' : 'p') + '/' + encodeURIComponent(deviceId);
+        url.searchParams.set('t', type === 'laptop' ? 'l' : 'p');
+        url.searchParams.set('d', deviceId);
         return url.toString();
+    }
+
+    function migrateHashDeepLinkToQuery() {
+        var hash = window.location.hash.replace(/^#/, '');
+        if (!hash) {
+            return;
+        }
+
+        var hashMatch = hash.match(/^(l|p)\/(.+)$/);
+        if (!hashMatch) {
+            return;
+        }
+
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('t') && params.get('d')) {
+            return;
+        }
+
+        params.set('t', hashMatch[1]);
+        params.set('d', decodeURIComponent(hashMatch[2]));
+        var query = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (query ? '?' + query : ''));
     }
 
     function parseDeepLinkFromUrl() {
@@ -1524,16 +1543,18 @@ $moiraiJsKeys = [
         showMessage(modalMessage, '');
     }
 
-    function openDevice(id) {
+    function openDevice(id, type) {
+        var deviceType = type || state.tab;
         showMessage(modalMessage, '');
-        fetchJson(apiUrl({ action: 'get', type: state.tab, id: id }))
+        return fetchJson(apiUrl({ action: 'get', type: deviceType, id: id }))
             .then(function (data) {
                 state.currentDevice = data.device;
                 renderDetails(data.device);
                 openModal();
             })
             .catch(function (error) {
-                showMessage(pageMessage, error.message);
+                showMessage(modalMessage, error.message);
+                openModal();
             });
     }
 
@@ -1678,13 +1699,15 @@ $moiraiJsKeys = [
     }
 
     function handleDeepLinkFromUrl() {
+        migrateHashDeepLinkToQuery();
         var link = parseDeepLinkFromUrl();
         if (!link) {
             return Promise.resolve();
         }
 
         return activateTab(link.type).then(function () {
-            openDevice(link.deviceId);
+            return openDevice(link.deviceId, link.type);
+        }).then(function () {
             clearDeepLinkFromUrl();
         });
     }
@@ -1765,6 +1788,8 @@ $moiraiJsKeys = [
             openModal();
         });
     }
+
+    window.addEventListener('hashchange', handleDeepLinkFromUrl);
 
     loadFilterOptions().then(loadDevices).then(handleDeepLinkFromUrl);
 })();

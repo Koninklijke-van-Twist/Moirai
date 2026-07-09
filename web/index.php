@@ -23,6 +23,7 @@ $moiraiJsKeys = [
     'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
     'moirai.error.print_unavailable', 'moirai.error.print_barcode',
     'moirai.print.ram', 'moirai.print.storage', 'moirai.print.cpu', 'moirai.print.purchased', 'moirai.print.os', 'moirai.print.keyboard', 'moirai.print.screen',
+    'moirai.print.bridge_fallback',
 ];
 
 ?>
@@ -577,7 +578,7 @@ $moiraiJsKeys = [
             align-items: baseline;
             gap: 4px;
             margin: 0 0 2px;
-            font-size: 7.5pt;
+            font-size: 9pt;
             line-height: 1.2;
         }
 
@@ -1164,6 +1165,34 @@ $moiraiJsKeys = [
             '<span class="print-label-val">' + escapeHtml(value) + '</span></p>';
     }
 
+    function buildPrintPayload(device, type) {
+        var lines = [];
+        var id = String(device.id || device[keyField(type)] || '').trim();
+
+        if (type === 'laptop') {
+            lines.push({ label: t('moirai.print.ram'), value: formatPrintValue(device.ram) });
+            lines.push({ label: t('moirai.print.storage'), value: formatPrintValue(device.opslag) });
+            lines.push({ label: t('moirai.print.cpu'), value: formatPrintValue(device.cpu) });
+        } else {
+            lines.push({ label: t('moirai.print.screen'), value: formatPrintValue(device.schermformaat) });
+            lines.push({ label: t('moirai.print.storage'), value: formatPrintValue(device.opslag) });
+        }
+
+        lines.push({ label: t('moirai.print.purchased'), value: formatPrintDate(device.aanschafdatum) });
+        lines.push({ label: t('moirai.print.os'), value: formatPrintOs(device) });
+
+        if (type === 'laptop') {
+            lines.push({ label: t('moirai.print.keyboard'), value: formatPrintValue(device.toetsenbord) });
+        }
+
+        return {
+            title: deviceTitle(device),
+            id: id,
+            qrUrl: deviceDeepLink(device, type),
+            lines: lines
+        };
+    }
+
     function buildPrintLabelDetails(device, type) {
         var lines = [];
         var id = String(device.id || device[keyField(type)] || '').trim();
@@ -1190,7 +1219,51 @@ $moiraiJsKeys = [
         return lines.join('');
     }
 
-    function printDeviceLabel(device, type) {
+    var PRINT_BRIDGE_URL = 'http://127.0.0.1:9173';
+    var PRINT_BRIDGE_TIMEOUT_MS = 15000;
+
+    function fetchWithTimeout(url, options, timeoutMs) {
+        return new Promise(function (resolve, reject) {
+            var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            var timer = setTimeout(function () {
+                if (controller) {
+                    controller.abort();
+                }
+                reject(new Error('timeout'));
+            }, timeoutMs);
+
+            var fetchOptions = options || {};
+            if (controller) {
+                fetchOptions.signal = controller.signal;
+            }
+
+            fetch(url, fetchOptions).then(function (response) {
+                clearTimeout(timer);
+                resolve(response);
+            }).catch(function (error) {
+                clearTimeout(timer);
+                reject(error);
+            });
+        });
+    }
+
+    function tryBridgePrint(payload) {
+        return fetchWithTimeout(PRINT_BRIDGE_URL + '/print', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }, PRINT_BRIDGE_TIMEOUT_MS).then(function (response) {
+            return response.json().catch(function () {
+                return {};
+            }).then(function (data) {
+                return response.ok && data && data.ok === true;
+            });
+        }).catch(function () {
+            return false;
+        });
+    }
+
+    function printViaBrowser(device, type) {
         if (typeof QRCode === 'undefined' || typeof QRCode.toCanvas !== 'function') {
             showMessage(modalMessage, t('moirai.error.print_unavailable'));
             return;
@@ -1223,6 +1296,22 @@ $moiraiJsKeys = [
             window.addEventListener('afterprint', cleanup);
             root.hidden = false;
             window.print();
+        });
+    }
+
+    function printDeviceLabel(device, type) {
+        var payload = buildPrintPayload(device, type);
+
+        tryBridgePrint(payload).then(function (printed) {
+            if (printed) {
+                return;
+            }
+
+            if (!window.confirm(t('moirai.print.bridge_fallback'))) {
+                return;
+            }
+
+            printViaBrowser(device, type);
         });
     }
 

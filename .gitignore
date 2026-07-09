@@ -11,3 +11,5 @@ web/data/filter_cache.json
 web/cache/
 
 data/
+
+print-bridge/node_modules/

@@ -14,13 +14,15 @@ $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.unnamed', 'moirai.filter.all',
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
-    'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.save', 'moirai.btn.cancel',
+    'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
     'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
+    'moirai.error.print_unavailable', 'moirai.error.print_barcode',
+    'moirai.print.ram', 'moirai.print.storage', 'moirai.print.cpu', 'moirai.print.purchased', 'moirai.print.os', 'moirai.print.keyboard', 'moirai.print.screen',
 ];
 
 ?>
@@ -519,6 +521,128 @@ $moiraiJsKeys = [
             font-weight: 700;
             color: var(--kvt-perkins-blue);
         }
+
+        .print-label-root {
+            --label-paper-width: 52mm;
+            --label-qr-size: 28mm;
+            display: none;
+        }
+
+        .print-label {
+            width: 100%;
+            max-width: var(--label-paper-width);
+            margin: 0 auto;
+            padding: 0 1mm;
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 8pt;
+            line-height: 1.35;
+            color: #000;
+        }
+
+        .print-label-title {
+            margin: 0 0 6px;
+            font-size: 10pt;
+            font-weight: 700;
+            text-align: center;
+            line-height: 1.2;
+            word-break: break-word;
+        }
+
+        .print-label-qr-wrap {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            margin: 0 0 10px;
+        }
+
+        .print-label-qrcode {
+            display: block;
+            width: var(--label-qr-size) !important;
+            height: var(--label-qr-size) !important;
+            margin: 0;
+            image-rendering: pixelated;
+        }
+
+        .print-label-details {
+            margin: 0;
+            border-top: 1px dashed #000;
+            padding-top: 6px;
+        }
+
+        .print-label-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 4px;
+            margin: 0 0 2px;
+            font-size: 7.5pt;
+            line-height: 1.2;
+        }
+
+        .print-label-key {
+            flex: 0 1 auto;
+            text-align: left;
+        }
+
+        .print-label-val {
+            flex: 1 1 auto;
+            min-width: 0;
+            text-align: right;
+            margin-left: auto;
+            word-break: break-word;
+        }
+
+        .print-label-id {
+            display: block;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .print-label-feed {
+            height: 18mm;
+        }
+
+        @media print {
+            @page {
+                size: 52mm auto;
+                margin: 0;
+            }
+
+            body * {
+                visibility: hidden;
+            }
+
+            .print-label-root,
+            .print-label-root * {
+                visibility: visible;
+            }
+
+            .print-label-root {
+                display: block !important;
+                position: relative;
+                left: auto;
+                top: auto;
+                transform: none;
+                width: var(--label-paper-width);
+                max-width: var(--label-paper-width);
+                margin: 0;
+                padding: 2mm;
+                box-sizing: border-box;
+            }
+
+            .print-label {
+                width: 100%;
+                max-width: none;
+                margin: 0;
+                padding: 0;
+            }
+
+            .print-label-feed {
+                height: 24mm;
+            }
+        }
     </style>
     <?php renderMoiraiLanguageRailStyles(); ?>
 </head>
@@ -628,6 +752,18 @@ $moiraiJsKeys = [
     </div>
 </div>
 
+<div id="print-label-root" class="print-label-root" hidden>
+    <div class="print-label">
+        <h1 id="print-label-title" class="print-label-title"></h1>
+        <div class="print-label-qr-wrap">
+            <canvas id="print-label-qrcode" class="print-label-qrcode" role="img" aria-hidden="true"></canvas>
+        </div>
+        <div id="print-label-details" class="print-label-details"></div>
+        <div class="print-label-feed" aria-hidden="true"></div>
+    </div>
+</div>
+
+<script src="js/qrcode.min.js"></script>
 <script>
 (function () {
     var isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
@@ -939,6 +1075,157 @@ $moiraiJsKeys = [
         ];
     }
 
+    function deviceDeepLink(device, type) {
+        var deviceId = String(device.id || device[keyField(type)] || '');
+        var url = new URL(window.location.origin + window.location.pathname);
+        var lang = new URL(window.location.href).searchParams.get('lang');
+        if (lang) {
+            url.searchParams.set('lang', lang);
+        }
+        url.hash = (type === 'laptop' ? 'l' : 'p') + '/' + encodeURIComponent(deviceId);
+        return url.toString();
+    }
+
+    function parseDeepLinkFromUrl() {
+        var hash = window.location.hash.replace(/^#/, '');
+        if (hash) {
+            var hashMatch = hash.match(/^(l|p)\/(.+)$/);
+            if (hashMatch) {
+                return {
+                    type: hashMatch[1] === 'l' ? 'laptop' : 'phone',
+                    deviceId: decodeURIComponent(hashMatch[2])
+                };
+            }
+        }
+
+        var params = new URLSearchParams(window.location.search);
+        var shortType = params.get('t');
+        var shortId = params.get('d');
+        if (shortType && shortId && (shortType === 'l' || shortType === 'p')) {
+            return {
+                type: shortType === 'l' ? 'laptop' : 'phone',
+                deviceId: shortId
+            };
+        }
+
+        var type = params.get('type');
+        var deviceId = params.get('device');
+        if (type && deviceId && (type === 'laptop' || type === 'phone')) {
+            return { type: type, deviceId: deviceId };
+        }
+
+        return null;
+    }
+
+    function clearDeepLinkFromUrl() {
+        var params = new URLSearchParams(window.location.search);
+        params.delete('type');
+        params.delete('device');
+        params.delete('t');
+        params.delete('d');
+        var query = params.toString();
+        var nextUrl = window.location.pathname + (query ? '?' + query : '');
+        window.history.replaceState({}, '', nextUrl);
+    }
+
+    function formatPrintValue(value) {
+        var text = String(value ?? '').trim();
+        return text || '—';
+    }
+
+    function formatPrintDate(value) {
+        var raw = String(value ?? '').trim();
+        if (!raw) {
+            return '—';
+        }
+        var parts = raw.split('-');
+        if (parts.length !== 3) {
+            return raw;
+        }
+        var date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        if (isNaN(date.getTime())) {
+            return raw;
+        }
+        return new Intl.DateTimeFormat(document.documentElement.lang || 'nl-NL', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        }).format(date);
+    }
+
+    function formatPrintOs(device) {
+        var combined = [String(device.os || '').trim(), String(device.os_versie || '').trim()].filter(Boolean).join(' ');
+        return combined || '—';
+    }
+
+    function printLabelLine(label, value) {
+        return '<p class="print-label-line">' +
+            '<span class="print-label-key">' + escapeHtml(label) + ':</span>' +
+            '<span class="print-label-val">' + escapeHtml(value) + '</span></p>';
+    }
+
+    function buildPrintLabelDetails(device, type) {
+        var lines = [];
+        var id = String(device.id || device[keyField(type)] || '').trim();
+        if (id) {
+            lines.push('<p class="print-label-line print-label-id">' + escapeHtml(id) + '</p>');
+        }
+
+        if (type === 'laptop') {
+            lines.push(printLabelLine(t('moirai.print.ram'), formatPrintValue(device.ram)));
+            lines.push(printLabelLine(t('moirai.print.storage'), formatPrintValue(device.opslag)));
+            lines.push(printLabelLine(t('moirai.print.cpu'), formatPrintValue(device.cpu)));
+        } else {
+            lines.push(printLabelLine(t('moirai.print.screen'), formatPrintValue(device.schermformaat)));
+            lines.push(printLabelLine(t('moirai.print.storage'), formatPrintValue(device.opslag)));
+        }
+
+        lines.push(printLabelLine(t('moirai.print.purchased'), formatPrintDate(device.aanschafdatum)));
+        lines.push(printLabelLine(t('moirai.print.os'), formatPrintOs(device)));
+
+        if (type === 'laptop') {
+            lines.push(printLabelLine(t('moirai.print.keyboard'), formatPrintValue(device.toetsenbord)));
+        }
+
+        return lines.join('');
+    }
+
+    function printDeviceLabel(device, type) {
+        if (typeof QRCode === 'undefined' || typeof QRCode.toCanvas !== 'function') {
+            showMessage(modalMessage, t('moirai.error.print_unavailable'));
+            return;
+        }
+
+        var root = document.getElementById('print-label-root');
+        var link = deviceDeepLink(device, type);
+        document.getElementById('print-label-title').textContent = deviceTitle(device);
+        document.getElementById('print-label-details').innerHTML = buildPrintLabelDetails(device, type);
+
+        var canvas = document.getElementById('print-label-qrcode');
+        QRCode.toCanvas(canvas, link, {
+            width: 120,
+            margin: 1,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#000000', light: '#ffffff' }
+        }, function (error) {
+            if (error) {
+                showMessage(modalMessage, t('moirai.error.print_barcode'));
+                return;
+            }
+
+            canvas.className = 'print-label-qrcode';
+            canvas.removeAttribute('style');
+
+            var cleanup = function () {
+                root.hidden = true;
+                window.removeEventListener('afterprint', cleanup);
+            };
+            window.addEventListener('afterprint', cleanup);
+            root.hidden = false;
+            window.print();
+        });
+    }
+
     function renderHistoryBlock(device) {
         var html = '';
         if (device.uitgegeven_aan && device.uitgegeven_aan.email) {
@@ -988,6 +1275,13 @@ $moiraiJsKeys = [
         historyBtn.textContent = t('moirai.btn.history');
         historyBtn.addEventListener('click', function () { openHistoryModal(device); });
         modalActions.appendChild(historyBtn);
+
+        var printBtn = document.createElement('button');
+        printBtn.type = 'button';
+        printBtn.className = 'btn btn-secondary';
+        printBtn.textContent = t('moirai.btn.print_label');
+        printBtn.addEventListener('click', function () { printDeviceLabel(device, state.tab); });
+        modalActions.appendChild(printBtn);
 
         if (isAdmin) {
             var assignBtn = document.createElement('button');
@@ -1267,28 +1561,48 @@ $moiraiJsKeys = [
         });
     }
 
+    function activateTab(type) {
+        tabs.forEach(function (tab) {
+            var isActive = tab.getAttribute('data-tab') === type;
+            tab.classList.toggle('is-active', isActive);
+            tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        if (state.tab === type) {
+            return Promise.resolve();
+        }
+
+        listRequestId++;
+        state.devices = [];
+        deviceList.innerHTML = '';
+        showListLoading();
+        state.tab = type;
+        resetAttrFilters();
+        var tabLoadId = listRequestId;
+        var tabName = type;
+        return loadFilterOptions().then(function () {
+            if (tabLoadId !== listRequestId || tabName !== state.tab) {
+                return;
+            }
+            return loadDevices();
+        });
+    }
+
+    function handleDeepLinkFromUrl() {
+        var link = parseDeepLinkFromUrl();
+        if (!link) {
+            return Promise.resolve();
+        }
+
+        return activateTab(link.type).then(function () {
+            openDevice(link.deviceId);
+            clearDeepLinkFromUrl();
+        });
+    }
+
     tabs.forEach(function (tab) {
         tab.addEventListener('click', function () {
-            tabs.forEach(function (item) {
-                item.classList.remove('is-active');
-                item.setAttribute('aria-selected', 'false');
-            });
-            tab.classList.add('is-active');
-            tab.setAttribute('aria-selected', 'true');
-            listRequestId++;
-            state.devices = [];
-            deviceList.innerHTML = '';
-            showListLoading();
-            state.tab = tab.getAttribute('data-tab');
-            resetAttrFilters();
-            var tabLoadId = listRequestId;
-            var tabName = state.tab;
-            loadFilterOptions().then(function () {
-                if (tabLoadId !== listRequestId || tabName !== state.tab) {
-                    return;
-                }
-                loadDevices();
-            });
+            activateTab(tab.getAttribute('data-tab'));
         });
     });
 
@@ -1363,7 +1677,7 @@ $moiraiJsKeys = [
         });
     }
 
-    loadFilterOptions().then(loadDevices);
+    loadFilterOptions().then(loadDevices).then(handleDeepLinkFromUrl);
 })();
 </script>
 <?php renderMoiraiLanguageRailScript(); ?>

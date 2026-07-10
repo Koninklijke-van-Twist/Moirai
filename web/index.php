@@ -261,9 +261,26 @@ $moiraiJsKeys = [
         }
 
         .device-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-size: 1rem;
             font-weight: 700;
             margin: 0 0 4px;
+        }
+
+        .device-qr-icon {
+            flex: 0 0 auto;
+            width: 18px;
+            height: 18px;
+            color: var(--kvt-main-blue);
+        }
+
+        .device-qr-icon img,
+        .device-qr-icon svg {
+            display: block;
+            width: 100%;
+            height: 100%;
         }
 
         .device-meta {
@@ -1038,10 +1055,13 @@ $moiraiJsKeys = [
                 ? t('moirai.badge.assigned', device.uitgegeven_aan.naam || device.uitgegeven_aan.email)
                 : t('moirai.badge.reserve');
             var key = device[keyField(state.tab)] || device.id;
+            var qrIcon = device.qr_geldig
+                ? '<span class="device-qr-icon" aria-hidden="true"><img src="icons/qr-verified.svg" alt=""></span>'
+                : '';
 
             return '<button type="button" class="device-item" data-id="' + escapeHtml(key) + '">' +
                 '<div class="device-item-main">' +
-                '<p class="device-name">' + escapeHtml(deviceTitle(device)) + '</p>' +
+                '<p class="device-name">' + qrIcon + '<span>' + escapeHtml(deviceTitle(device)) + '</span></p>' +
                 '<p class="device-meta">' + escapeHtml(deviceSubtitle(device, state.tab)) + '</p>' +
                 '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
                 '</div>' +
@@ -1551,11 +1571,38 @@ $moiraiJsKeys = [
                 state.currentDevice = data.device;
                 renderDetails(data.device);
                 openModal();
+                return data.device;
             })
             .catch(function (error) {
                 showMessage(modalMessage, error.message);
                 openModal();
+                throw error;
             });
+    }
+
+    function markQrVerifiedSilent(type, id, device) {
+        if (!device || device.qr_geldig) {
+            return Promise.resolve();
+        }
+
+        return fetchJson('devices_api.php?action=verify_qr', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: type, id: id })
+        }).then(function (data) {
+            var updated = data.device;
+            state.devices.forEach(function (item, index) {
+                var itemKey = item[keyField(type)] || item.id;
+                if (String(itemKey) === String(id)) {
+                    state.devices[index] = updated;
+                }
+            });
+            if (state.tab === type) {
+                renderList();
+            }
+        }).catch(function () {
+            // Stil bijwerken; geen melding tonen.
+        });
     }
 
     function ensureUsers() {
@@ -1707,7 +1754,10 @@ $moiraiJsKeys = [
 
         return activateTab(link.type).then(function () {
             return openDevice(link.deviceId, link.type);
-        }).then(function () {
+        }).then(function (device) {
+            markQrVerifiedSilent(link.type, link.deviceId, device);
+            clearDeepLinkFromUrl();
+        }).catch(function () {
             clearDeepLinkFromUrl();
         });
     }

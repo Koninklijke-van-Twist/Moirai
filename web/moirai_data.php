@@ -420,6 +420,8 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'laptops', 'opslag', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'laptops', 'toetsenbord', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'phones', 'opslag', "TEXT NOT NULL DEFAULT ''");
+    moirai_ensure_column($pdo, 'laptops', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
+    moirai_ensure_column($pdo, 'phones', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
     moirai_migrate_laptop_os_column($pdo);
 }
 
@@ -862,6 +864,7 @@ function moirai_row_to_device(array $row, string $typeKey): array
         'uitgegeven_aan' => $uitgegeven,
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
         'historie_uitgegeven' => $historie,
+        'qr_geldig' => ((int) ($row['qr_geldig'] ?? 0)) === 1,
     ];
 
     if ($typeKey === 'laptops') {
@@ -1271,4 +1274,30 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
     }
 
     return true;
+}
+
+function moirai_mark_qr_verified(string $type, string $key): ?array
+{
+    $typeKey = moirai_type_key($type);
+    $key = trim($key);
+    if ($typeKey === null || $key === '') {
+        return null;
+    }
+
+    $device = moirai_get_device($type, $key);
+    if ($device === null) {
+        return null;
+    }
+
+    if (!empty($device['qr_geldig'])) {
+        return $device;
+    }
+
+    $table = moirai_table_name($typeKey);
+    $keyField = moirai_device_key_field($typeKey);
+    $pdo = moirai_db();
+    $stmt = $pdo->prepare("UPDATE {$table} SET qr_geldig = 1 WHERE {$keyField} = :key");
+    $stmt->execute(['key' => $key]);
+
+    return moirai_get_device($type, $key);
 }

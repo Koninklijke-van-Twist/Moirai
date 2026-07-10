@@ -38,6 +38,20 @@ try {
             moirai_json_response(['ok' => true, 'device' => $device]);
             break;
 
+        case 'verify_qr':
+            $payload = json_decode((string) file_get_contents('php://input'), true);
+            if (!is_array($payload)) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
+            }
+            $type = trim((string) ($payload['type'] ?? ''));
+            $id = trim((string) ($payload['id'] ?? ''));
+            $device = moirai_mark_qr_verified($type, $id);
+            if ($device === null) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.device_not_found')], 404);
+            }
+            moirai_json_response(['ok' => true, 'device' => $device]);
+            break;
+
         case 'users':
             if (!moirai_is_admin()) {
                 moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.forbidden')], 403);

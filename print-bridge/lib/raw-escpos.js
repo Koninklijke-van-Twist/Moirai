@@ -1,8 +1,7 @@
 'use strict';
 
 const qr = require('qr-image');
-const getPixels = require('get-pixels');
-const Image = require('escpos/image');
+const { buildRasterPngBuffer } = require('./raster-image');
 
 const ESC = 0x1b;
 const GS = 0x1d;
@@ -118,28 +117,7 @@ function buildCode128Format2Buffer(text, withPrefix) {
 
 function buildRasterQrBuffer(content) {
     const png = qr.imageSync(String(content), { type: 'png', margin: 1 });
-
-    return new Promise((resolve, reject) => {
-        getPixels(png, 'image/png', (err, pixels) => {
-            if (err) {
-                reject(err);
-                return;
-            }
-
-            const raster = new Image(pixels).toRaster();
-            const width = Buffer.alloc(2);
-            const height = Buffer.alloc(2);
-            width.writeUInt16LE(raster.width, 0);
-            height.writeUInt16LE(raster.height, 0);
-
-            resolve(Buffer.concat([
-                Buffer.from([GS, 0x76, 0x30, 0x00]),
-                width,
-                height,
-                Buffer.from(raster.data),
-            ]));
-        });
-    });
+    return buildRasterPngBuffer(png);
 }
 
 async function buildRawDiagnosticBuffer(options = {}) {

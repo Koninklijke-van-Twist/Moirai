@@ -40,13 +40,11 @@ if ($nodeMajor -lt 18) {
     exit 1
 }
 
-if (-not (Test-Path (Join-Path $BridgeDir 'node_modules'))) {
-    Write-BridgeLog 'npm install...'
-    & npm install --omit=dev 2>&1 | ForEach-Object { Write-BridgeLog $_ }
-    if ($LASTEXITCODE -ne 0) {
-        Write-BridgeLog 'FOUT: npm install mislukt.'
-        exit 1
-    }
+Write-BridgeLog 'npm install...'
+& npm install --omit=dev 2>&1 | ForEach-Object { Write-BridgeLog $_ }
+if ($LASTEXITCODE -ne 0) {
+    Write-BridgeLog 'FOUT: npm install mislukt.'
+    exit 1
 }
 
 Write-BridgeLog 'Bridge starten op http://127.0.0.1:9173'

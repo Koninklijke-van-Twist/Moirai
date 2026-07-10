@@ -15,6 +15,9 @@ if not exist "node_modules\" (
     echo npm install...
     call npm install --omit=dev
     if errorlevel 1 exit /b 1
+) else (
+    call npm install --omit=dev
+    if errorlevel 1 exit /b 1
 )
 
 echo Moirai print bridge op http://127.0.0.1:9173

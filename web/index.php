@@ -1228,6 +1228,7 @@ $moiraiJsKeys = [
             title: deviceTitle(device),
             id: id,
             qrUrl: deviceDeepLink(device, type),
+            logo: true,
             lines: lines
         };
     }
@@ -1621,6 +1622,7 @@ $moiraiJsKeys = [
         }
 
         var formData = new FormData(form);
+        var wasNew = !String(formData.get('original_key') || '').trim();
         var payload = {
             type: state.tab,
             original_key: formData.get('original_key') || ''
@@ -1634,9 +1636,18 @@ $moiraiJsKeys = [
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
-        }).then(function () {
-            closeModal();
-            loadFilterOptions().then(loadDevices);
+        }).then(function (data) {
+            return loadFilterOptions().then(loadDevices).then(function () {
+                if (wasNew && data.device) {
+                    state.editing = false;
+                    state.currentDevice = data.device;
+                    renderDetails(data.device);
+                    openModal();
+                    return;
+                }
+
+                closeModal();
+            });
         }).catch(function (error) {
             showMessage(modalMessage, error.message);
         });

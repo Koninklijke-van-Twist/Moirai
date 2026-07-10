@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "escpos": "3.0.0-alpha.6",
+    "sharp": "^0.34.5",
     "usb": "2.16.0"
   }
 }

@@ -1301,3 +1301,69 @@ function moirai_mark_qr_verified(string $type, string $key): ?array
 
     return moirai_get_device($type, $key);
 }
+
+/**
+ * @return array{type: string, deviceId: string}|null
+ */
+function moirai_parse_deep_link_from_request(): ?array
+{
+    $sources = [$_GET];
+    $uriQuery = parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_QUERY);
+    if (is_string($uriQuery) && $uriQuery !== '') {
+        $parsed = [];
+        parse_str($uriQuery, $parsed);
+        $sources[] = $parsed;
+    }
+
+    foreach ($sources as $params) {
+        if (!is_array($params)) {
+            continue;
+        }
+
+        $shortType = trim((string) ($params['t'] ?? ''));
+        $shortId = trim((string) ($params['d'] ?? ''));
+        if (($shortType === 'l' || $shortType === 'p') && $shortId !== '') {
+            return [
+                'type' => $shortType === 'l' ? 'laptop' : 'phone',
+                'deviceId' => $shortId,
+            ];
+        }
+
+        $type = trim((string) ($params['type'] ?? ''));
+        $deviceId = trim((string) ($params['device'] ?? ''));
+        if (in_array($type, ['laptop', 'phone'], true) && $deviceId !== '') {
+            return [
+                'type' => $type,
+                'deviceId' => $deviceId,
+            ];
+        }
+    }
+
+    return null;
+}
+
+function moirai_build_lost_found_url(?array $link = null): string
+{
+    $link ??= moirai_parse_deep_link_from_request();
+    if ($link === null) {
+        return 'lost_and_found.php';
+    }
+
+    $shortType = $link['type'] === 'laptop' ? 'l' : 'p';
+
+    return 'lost_and_found.php?' . http_build_query([
+        't' => $shortType,
+        'd' => $link['deviceId'],
+    ]);
+}
+
+function moirai_device_display_name(?array $device): string
+{
+    if (!is_array($device)) {
+        return 'apparaat';
+    }
+
+    $name = trim((string) ($device['model'] ?? $device['naam'] ?? ''));
+
+    return $name !== '' ? $name : 'apparaat';
+}

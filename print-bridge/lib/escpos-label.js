@@ -4,6 +4,7 @@ const escpos = require('escpos');
 const CollectDevice = require('./collect-device');
 const { useRasterQr } = require('./escpos-qr');
 const { buildRasterQrBuffer, buildEpsonQrBuffer } = require('./raw-escpos');
+const { buildLabelLogoBuffer, shouldPrintLogo, logLogoError } = require('./label-logo');
 
 const PRINTER_WIDTH = 32;
 const DETAIL_FONT = 'a';
@@ -107,11 +108,22 @@ function buildHeaderBuffer(payload) {
 function buildNativeHeaderBuffer(payload) {
     const title = String(payload.title || '').trim();
     const qrUrl = String(payload.qrUrl || '').trim();
+    const logoPromise = shouldPrintLogo(payload)
+        ? buildLabelLogoBuffer().catch((err) => {
+            logLogoError(err);
+            return null;
+        })
+        : Promise.resolve(null);
 
-    return buildBuffer((printer) => {
+    return logoPromise.then((logoRaster) => buildBuffer((printer) => {
         printer.hardware('init');
         applyPrintSpeed(printer);
         applyLineSpacing(printer);
+
+        if (logoRaster) {
+            printer.align('ct').raw(logoRaster).feed(1);
+        }
+
         printer
             .font('a')
             .align('ct')
@@ -122,19 +134,32 @@ function buildNativeHeaderBuffer(payload) {
             .feed(1);
 
         if (qrUrl) {
-            printer.align('ct').print(buildEpsonQrBuffer(qrUrl)).feed(1);
+            printer.align('ct').raw(buildEpsonQrBuffer(qrUrl)).feed(1);
         }
-    });
+    }));
 }
 
 function buildRasterHeaderBuffer(payload) {
     const title = String(payload.title || '').trim();
     const qrUrl = String(payload.qrUrl || '').trim();
 
-    return buildRasterQrBuffer(qrUrl).then((raster) => buildBuffer((printer) => {
+    return Promise.all([
+        shouldPrintLogo(payload)
+            ? buildLabelLogoBuffer().catch((err) => {
+                logLogoError(err);
+                return null;
+            })
+            : Promise.resolve(null),
+        buildRasterQrBuffer(qrUrl),
+    ]).then(([logoRaster, raster]) => buildBuffer((printer) => {
         printer.hardware('init');
         applyPrintSpeed(printer);
         applyLineSpacing(printer);
+
+        if (logoRaster) {
+            printer.align('ct').raw(logoRaster).feed(1);
+        }
+
         printer
             .font('a')
             .align('ct')
@@ -145,7 +170,7 @@ function buildRasterHeaderBuffer(payload) {
             .feed(1);
 
         if (qrUrl) {
-            printer.align('ct').print(raster).feed(1);
+            printer.align('ct').raw(raster).feed(1);
         }
     }));
 }

@@ -82,7 +82,8 @@ if (is_trusted_requester()) {
 
 } else {
 
-    require __DIR__ . '/../login/lib.php';
+    require_once __DIR__ . '/login_path.php';
+    require moirai_resolve_login_file('lib.php');
 
 
 
@@ -96,7 +97,7 @@ if (is_trusted_requester()) {
 
     ) {
 
-        require __DIR__ . '/../login/403.php';
+        require __DIR__ . '/403.php';
 
         die();
 

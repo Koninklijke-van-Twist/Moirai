@@ -12,6 +12,3 @@ web/data/print_verify_codes.json
 web/cache/
 
 data/
-
-print-bridge/node_modules/
-print-bridge/logs/

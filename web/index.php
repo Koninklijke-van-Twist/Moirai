@@ -21,9 +21,7 @@ $moiraiJsKeys = [
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
     'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
-    'moirai.error.print_unavailable', 'moirai.error.print_barcode',
-    'moirai.print.ram', 'moirai.print.storage', 'moirai.print.cpu', 'moirai.print.purchased', 'moirai.print.os', 'moirai.print.keyboard', 'moirai.print.screen',
-    'moirai.print.bridge_fallback',
+    'moirai.error.print_failed',
 ];
 
 ?>
@@ -539,128 +537,6 @@ $moiraiJsKeys = [
             font-weight: 700;
             color: var(--kvt-perkins-blue);
         }
-
-        .print-label-root {
-            --label-paper-width: 52mm;
-            --label-qr-size: 28mm;
-            display: none;
-        }
-
-        .print-label {
-            width: 100%;
-            max-width: var(--label-paper-width);
-            margin: 0 auto;
-            padding: 0 1mm;
-            box-sizing: border-box;
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 8pt;
-            line-height: 1.35;
-            color: #000;
-        }
-
-        .print-label-title {
-            margin: 0 0 6px;
-            font-size: 10pt;
-            font-weight: 700;
-            text-align: center;
-            line-height: 1.2;
-            word-break: break-word;
-        }
-
-        .print-label-qr-wrap {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            margin: 0 0 10px;
-        }
-
-        .print-label-qrcode {
-            display: block;
-            width: var(--label-qr-size) !important;
-            height: var(--label-qr-size) !important;
-            margin: 0;
-            image-rendering: pixelated;
-        }
-
-        .print-label-details {
-            margin: 0;
-            border-top: 1px dashed #000;
-            padding-top: 6px;
-        }
-
-        .print-label-line {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            gap: 4px;
-            margin: 0 0 2px;
-            font-size: 9pt;
-            line-height: 1.2;
-        }
-
-        .print-label-key {
-            flex: 0 1 auto;
-            text-align: left;
-        }
-
-        .print-label-val {
-            flex: 1 1 auto;
-            min-width: 0;
-            text-align: right;
-            margin-left: auto;
-            word-break: break-word;
-        }
-
-        .print-label-id {
-            display: block;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-
-        .print-label-feed {
-            height: 18mm;
-        }
-
-        @media print {
-            @page {
-                size: 52mm auto;
-                margin: 0;
-            }
-
-            body * {
-                visibility: hidden;
-            }
-
-            .print-label-root,
-            .print-label-root * {
-                visibility: visible;
-            }
-
-            .print-label-root {
-                display: block !important;
-                position: relative;
-                left: auto;
-                top: auto;
-                transform: none;
-                width: var(--label-paper-width);
-                max-width: var(--label-paper-width);
-                margin: 0;
-                padding: 2mm;
-                box-sizing: border-box;
-            }
-
-            .print-label {
-                width: 100%;
-                max-width: none;
-                margin: 0;
-                padding: 0;
-            }
-
-            .print-label-feed {
-                height: 24mm;
-            }
-        }
     </style>
     <?php renderMoiraiLanguageRailStyles(); ?>
 </head>
@@ -770,18 +646,6 @@ $moiraiJsKeys = [
     </div>
 </div>
 
-<div id="print-label-root" class="print-label-root" hidden>
-    <div class="print-label">
-        <h1 id="print-label-title" class="print-label-title"></h1>
-        <div class="print-label-qr-wrap">
-            <canvas id="print-label-qrcode" class="print-label-qrcode" role="img" aria-hidden="true"></canvas>
-        </div>
-        <div id="print-label-details" class="print-label-details"></div>
-        <div class="print-label-feed" aria-hidden="true"></div>
-    </div>
-</div>
-
-<script src="js/qrcode.min.js"></script>
 <script>
 (function () {
     var isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
@@ -1168,190 +1032,25 @@ $moiraiJsKeys = [
         window.history.replaceState({}, '', nextUrl);
     }
 
-    function formatPrintValue(value) {
-        var text = String(value ?? '').trim();
-        return text || '—';
-    }
-
-    function formatPrintDate(value) {
-        var raw = String(value ?? '').trim();
-        if (!raw) {
-            return '—';
-        }
-        var parts = raw.split('-');
-        if (parts.length !== 3) {
-            return raw;
-        }
-        var date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-        if (isNaN(date.getTime())) {
-            return raw;
-        }
-        return new Intl.DateTimeFormat(document.documentElement.lang || 'nl-NL', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric'
-        }).format(date);
-    }
-
-    function formatPrintOs(device) {
-        var combined = [String(device.os || '').trim(), String(device.os_versie || '').trim()].filter(Boolean).join(' ');
-        return combined || '—';
-    }
-
-    function printLabelLine(label, value) {
-        return '<p class="print-label-line">' +
-            '<span class="print-label-key">' + escapeHtml(label) + ':</span>' +
-            '<span class="print-label-val">' + escapeHtml(value) + '</span></p>';
-    }
-
-    function buildPrintPayload(device, type) {
-        var lines = [];
+    function printDeviceLabel(device, type) {
         var id = String(device.id || device[keyField(type)] || '').trim();
-
-        if (type === 'laptop') {
-            lines.push({ label: t('moirai.print.ram'), value: formatPrintValue(device.ram) });
-            lines.push({ label: t('moirai.print.storage'), value: formatPrintValue(device.opslag) });
-            lines.push({ label: t('moirai.print.cpu'), value: formatPrintValue(device.cpu) });
-        } else {
-            lines.push({ label: t('moirai.print.screen'), value: formatPrintValue(device.schermformaat) });
-            lines.push({ label: t('moirai.print.storage'), value: formatPrintValue(device.opslag) });
-        }
-
-        lines.push({ label: t('moirai.print.purchased'), value: formatPrintDate(device.aanschafdatum) });
-        lines.push({ label: t('moirai.print.os'), value: formatPrintOs(device) });
-
-        if (type === 'laptop') {
-            lines.push({ label: t('moirai.print.keyboard'), value: formatPrintValue(device.toetsenbord) });
-        }
-
-        return {
-            title: deviceTitle(device),
-            id: id,
-            qrUrl: deviceDeepLink(device, type),
-            logo: true,
-            lines: lines
-        };
-    }
-
-    function buildPrintLabelDetails(device, type) {
-        var lines = [];
-        var id = String(device.id || device[keyField(type)] || '').trim();
-        if (id) {
-            lines.push('<p class="print-label-line print-label-id">' + escapeHtml(id) + '</p>');
-        }
-
-        if (type === 'laptop') {
-            lines.push(printLabelLine(t('moirai.print.ram'), formatPrintValue(device.ram)));
-            lines.push(printLabelLine(t('moirai.print.storage'), formatPrintValue(device.opslag)));
-            lines.push(printLabelLine(t('moirai.print.cpu'), formatPrintValue(device.cpu)));
-        } else {
-            lines.push(printLabelLine(t('moirai.print.screen'), formatPrintValue(device.schermformaat)));
-            lines.push(printLabelLine(t('moirai.print.storage'), formatPrintValue(device.opslag)));
-        }
-
-        lines.push(printLabelLine(t('moirai.print.purchased'), formatPrintDate(device.aanschafdatum)));
-        lines.push(printLabelLine(t('moirai.print.os'), formatPrintOs(device)));
-
-        if (type === 'laptop') {
-            lines.push(printLabelLine(t('moirai.print.keyboard'), formatPrintValue(device.toetsenbord)));
-        }
-
-        return lines.join('');
-    }
-
-    var PRINT_BRIDGE_URL = 'http://127.0.0.1:9173';
-    var PRINT_BRIDGE_TIMEOUT_MS = 15000;
-
-    function fetchWithTimeout(url, options, timeoutMs) {
-        return new Promise(function (resolve, reject) {
-            var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            var timer = setTimeout(function () {
-                if (controller) {
-                    controller.abort();
-                }
-                reject(new Error('timeout'));
-            }, timeoutMs);
-
-            var fetchOptions = options || {};
-            if (controller) {
-                fetchOptions.signal = controller.signal;
-            }
-
-            fetch(url, fetchOptions).then(function (response) {
-                clearTimeout(timer);
-                resolve(response);
-            }).catch(function (error) {
-                clearTimeout(timer);
-                reject(error);
-            });
-        });
-    }
-
-    function tryBridgePrint(payload) {
-        return fetchWithTimeout(PRINT_BRIDGE_URL + '/print', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        }, PRINT_BRIDGE_TIMEOUT_MS).then(function (response) {
-            return response.json().catch(function () {
-                return {};
-            }).then(function (data) {
-                return response.ok && data && data.ok === true;
-            });
-        }).catch(function () {
-            return false;
-        });
-    }
-
-    function printViaBrowser(device, type) {
-        if (typeof QRCode === 'undefined' || typeof QRCode.toCanvas !== 'function') {
-            showMessage(modalMessage, t('moirai.error.print_unavailable'));
+        if (!id) {
+            showMessage(modalMessage, t('moirai.error.print_failed'));
             return;
         }
 
-        var root = document.getElementById('print-label-root');
-        var link = deviceDeepLink(device, type);
-        document.getElementById('print-label-title').textContent = deviceTitle(device);
-        document.getElementById('print-label-details').innerHTML = buildPrintLabelDetails(device, type);
-
-        var canvas = document.getElementById('print-label-qrcode');
-        QRCode.toCanvas(canvas, link, {
-            width: 120,
-            margin: 1,
-            errorCorrectionLevel: 'M',
-            color: { dark: '#000000', light: '#ffffff' }
-        }, function (error) {
-            if (error) {
-                showMessage(modalMessage, t('moirai.error.print_barcode'));
-                return;
+        showMessage(modalMessage, '');
+        fetchJson('print_label.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: type, id: id })
+        }).then(function (data) {
+            if (!data.url) {
+                throw new Error(t('moirai.error.print_failed'));
             }
-
-            canvas.className = 'print-label-qrcode';
-            canvas.removeAttribute('style');
-
-            var cleanup = function () {
-                root.hidden = true;
-                window.removeEventListener('afterprint', cleanup);
-            };
-            window.addEventListener('afterprint', cleanup);
-            root.hidden = false;
-            window.print();
-        });
-    }
-
-    function printDeviceLabel(device, type) {
-        var payload = buildPrintPayload(device, type);
-
-        tryBridgePrint(payload).then(function (printed) {
-            if (printed) {
-                return;
-            }
-
-            if (!window.confirm(t('moirai.print.bridge_fallback'))) {
-                return;
-            }
-
-            printViaBrowser(device, type);
+            window.location.href = data.url;
+        }).catch(function (error) {
+            showMessage(modalMessage, error.message || t('moirai.error.print_failed'));
         });
     }
 

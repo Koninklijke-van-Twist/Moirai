@@ -8,6 +8,7 @@ BC Webservices.txt
 web/data/user_prefs/
 web/data/*.sqlite
 web/data/filter_cache.json
+web/data/print_verify_codes.json
 web/cache/
 
 data/

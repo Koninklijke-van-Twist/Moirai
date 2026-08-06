@@ -15,7 +15,7 @@ $moiraiJsKeys = [
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
-    'moirai.btn.delete', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
+    'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
@@ -437,6 +437,47 @@ $moiraiJsKeys = [
         .form-grid {
             display: grid;
             gap: 12px;
+        }
+
+        .assign-user-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .assign-user-row select {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .btn-icon {
+            flex: 0 0 auto;
+            width: 42px;
+            min-width: 42px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .btn-icon svg {
+            width: 18px;
+            height: 18px;
+            display: block;
+        }
+
+        .btn-icon.is-busy {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .btn-icon.is-busy svg {
+            animation: moirai-spin 0.8s linear infinite;
+        }
+
+        @keyframes moirai-spin {
+            to { transform: rotate(360deg); }
         }
 
         .modal-actions {
@@ -1139,6 +1180,31 @@ $moiraiJsKeys = [
         return html;
     }
 
+    function refreshIconSvg() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+            '<path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>' +
+            '</svg>';
+    }
+
+    function renderAssignForm(device) {
+        var selectedEmail = device.uitgegeven_aan ? device.uitgegeven_aan.email : '';
+        document.getElementById('assign-history').innerHTML = renderHistoryBlock(device);
+        document.getElementById('assign-form-wrap').innerHTML =
+            '<form class="form-grid" id="assign-form"><div>' +
+            '<label for="assign-user">' + escapeHtml(t('moirai.field.assigned_to')) + '</label>' +
+            '<div class="assign-user-row">' +
+            '<select id="assign-user" name="uitgegeven_email">' + userOptions(selectedEmail) + '</select>' +
+            '<button type="button" class="btn btn-secondary btn-icon" id="refresh-users-btn" title="' +
+            escapeHtml(t('moirai.btn.refresh_users')) + '" aria-label="' +
+            escapeHtml(t('moirai.btn.refresh_users')) + '">' + refreshIconSvg() + '</button>' +
+            '</div></div></form>';
+
+        var refreshBtn = document.getElementById('refresh-users-btn');
+        refreshBtn.addEventListener('click', function () {
+            refreshUsersList(device, refreshBtn);
+        });
+    }
+
     function openHistoryModal(device) {
         document.getElementById('history-modal-body').innerHTML = renderHistoryBlock(device);
         document.getElementById('history-modal-title').textContent = t('moirai.modal.history') + ': ' + deviceTitle(device);
@@ -1148,13 +1214,7 @@ $moiraiJsKeys = [
     function openAssignModal(device) {
         showMessage(assignModalMessage, '');
         ensureUsers().then(function () {
-            document.getElementById('assign-history').innerHTML = renderHistoryBlock(device);
-            document.getElementById('assign-form-wrap').innerHTML =
-                '<form class="form-grid" id="assign-form"><div><label for="assign-user">' +
-                escapeHtml(t('moirai.field.assigned_to')) + '</label>' +
-                '<select id="assign-user" name="uitgegeven_email">' +
-                userOptions(device.uitgegeven_aan ? device.uitgegeven_aan.email : '') +
-                '</select></div></form>';
+            renderAssignForm(device);
             document.getElementById('assign-modal-title').textContent = t('moirai.modal.assign') + ': ' + deviceTitle(device);
             var actions = document.getElementById('assign-modal-actions');
             actions.innerHTML = '';
@@ -1174,6 +1234,40 @@ $moiraiJsKeys = [
         }).catch(function (error) {
             showMessage(assignModalMessage, error.message);
             openBackdrop('assign-modal');
+        });
+    }
+
+    function refreshUsersList(device, refreshBtn) {
+        if (!isAdmin) {
+            return;
+        }
+
+        showMessage(assignModalMessage, '');
+        refreshBtn.classList.add('is-busy');
+        refreshBtn.disabled = true;
+
+        fetchJson(apiUrl({ action: 'users', refresh: '1' })).then(function (data) {
+            state.users = data.users || [];
+            var selected = '';
+            var select = document.getElementById('assign-user');
+            if (select) {
+                selected = select.value;
+            } else if (device.uitgegeven_aan && device.uitgegeven_aan.email) {
+                selected = device.uitgegeven_aan.email;
+            }
+            renderAssignForm(device);
+            var nextSelect = document.getElementById('assign-user');
+            if (nextSelect && selected) {
+                nextSelect.value = selected;
+            }
+        }).catch(function (error) {
+            showMessage(assignModalMessage, error.message);
+        }).then(function () {
+            var btn = document.getElementById('refresh-users-btn');
+            if (btn) {
+                btn.classList.remove('is-busy');
+                btn.disabled = false;
+            }
         });
     }
 

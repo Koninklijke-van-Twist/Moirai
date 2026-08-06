@@ -56,7 +56,8 @@ try {
             if (!moirai_is_admin()) {
                 moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.forbidden')], 403);
             }
-            moirai_json_response(['ok' => true, 'users' => moirai_fetch_directory_users()]);
+            $forceRefresh = in_array(strtolower(trim((string) ($_GET['refresh'] ?? ''))), ['1', 'true', 'yes'], true);
+            moirai_json_response(['ok' => true, 'users' => moirai_fetch_directory_users($forceRefresh)]);
             break;
 
         case 'save':

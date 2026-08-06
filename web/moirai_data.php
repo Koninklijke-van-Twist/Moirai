@@ -100,13 +100,15 @@ function moirai_loc(string $key, mixed ...$args): string
     return $args !== [] ? sprintf($key, ...$args) : $key;
 }
 
-function moirai_fetch_directory_users(): array
+function moirai_fetch_directory_users(bool $forceRefresh = false): array
 {
     global $graphCredentials;
 
     if (empty($graphCredentials['tenantId']) || empty($graphCredentials['clientId']) || empty($graphCredentials['clientSecret'])) {
         throw new InvalidArgumentException(moirai_loc('moirai.error.users_fetch'));
     }
+
+    $moiraiForceUsersRefresh = $forceRefresh;
 
     try {
         $users = include __DIR__ . '/getusers_fetch.php';

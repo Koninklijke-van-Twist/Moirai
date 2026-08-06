@@ -24,7 +24,13 @@ foreach (glob($cacheDir . '/users_cache_*.json') ?: [] as $filePath) {
 }
 
 $cacheFile = $cacheDir . '/users_cache_' . $today . '.json';
-if (is_file($cacheFile)) {
+$forceRefresh = !empty($moiraiForceUsersRefresh);
+
+if ($forceRefresh && is_file($cacheFile)) {
+    @unlink($cacheFile);
+}
+
+if (!$forceRefresh && is_file($cacheFile)) {
     $data = json_decode((string) file_get_contents($cacheFile), true);
     if (is_array($data)) {
         return $data;

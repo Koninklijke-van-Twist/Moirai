@@ -428,6 +428,7 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'laptops', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
     moirai_ensure_column($pdo, 'phones', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
     moirai_migrate_laptop_os_column($pdo);
+    moirai_migrate_legacy_device_values($pdo);
 
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS device_notes (
@@ -462,6 +463,48 @@ function moirai_migrate_laptop_os_column(PDO $pdo): void
     $pdo->exec("UPDATE laptops SET os = besturingssysteem WHERE trim(os) = '' AND trim(besturingssysteem) != ''");
 }
 
+function moirai_migrate_legacy_device_values(PDO $pdo): void
+{
+    $phoneColumns = $pdo->query('PRAGMA table_info(phones)')->fetchAll();
+    $phoneColumnNames = [];
+    foreach ($phoneColumns as $info) {
+        $phoneColumnNames[(string) ($info['name'] ?? '')] = true;
+    }
+
+    if (isset($phoneColumnNames['os'])) {
+        $pdo->exec("UPDATE phones SET os = 'iOS' WHERE lower(trim(os)) = 'iphone'");
+    }
+
+    if (isset($phoneColumnNames['model']) && isset($phoneColumnNames['naam'])) {
+        $pdo->exec("UPDATE phones SET model = naam WHERE trim(model) = '' AND trim(naam) != ''");
+        $pdo->exec("UPDATE phones SET naam = model WHERE trim(naam) = '' AND trim(model) != ''");
+    }
+
+    $laptopColumns = $pdo->query('PRAGMA table_info(laptops)')->fetchAll();
+    $laptopColumnNames = [];
+    foreach ($laptopColumns as $info) {
+        $laptopColumnNames[(string) ($info['name'] ?? '')] = true;
+    }
+
+    if (isset($laptopColumnNames['model']) && isset($laptopColumnNames['naam'])) {
+        $pdo->exec("UPDATE laptops SET model = naam WHERE trim(model) = '' AND trim(naam) != ''");
+        $pdo->exec("UPDATE laptops SET naam = model WHERE trim(naam) = '' AND trim(model) != ''");
+    }
+
+    if (isset($laptopColumnNames['toetsenbord'])) {
+        foreach (moirai_laptop_keyboard_aliases() as $legacy => $canonical) {
+            $stmt = $pdo->prepare(
+                'UPDATE laptops SET toetsenbord = :canonical
+                 WHERE lower(trim(toetsenbord)) = lower(:legacy)'
+            );
+            $stmt->execute([
+                'canonical' => $canonical,
+                'legacy' => $legacy,
+            ]);
+        }
+    }
+}
+
 function moirai_ensure_column(PDO $pdo, string $table, string $column, string $definition): void
 {
     $columns = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
@@ -479,6 +522,10 @@ function moirai_normalize_phone_os(string $value): string
     $value = trim($value);
     if ($value === '') {
         return '';
+    }
+
+    if (strcasecmp($value, 'iPhone') === 0) {
+        return 'iOS';
     }
 
     foreach (MOIRAI_PHONE_OS_OPTIONS as $option) {

@@ -1942,8 +1942,13 @@ $moiraiJsKeys = [
 
     document.getElementById('delete-confirm-yes').addEventListener('click', confirmDeleteDevice);
     document.getElementById('delete-confirm-no').addEventListener('click', closeDeleteConfirm);
-    document.getElementById('notes-delete-confirm-yes').addEventListener('click', confirmDeleteNote);
-    document.getElementById('notes-delete-confirm-no').addEventListener('click', closeNotesDeleteConfirm);
+
+    var closeNotesDeleteConfirm = function () {
+        state.pendingDeleteNoteId = null;
+        closeBackdrop('notes-delete-confirm-modal');
+    };
+    var confirmDeleteNote = function () {};
+    var openNotesModal = function () {};
 
     (function initNotesModal() {
         var modal = document.getElementById('notes-modal');
@@ -1958,6 +1963,8 @@ $moiraiJsKeys = [
         var composeLabel = modal.querySelector('[data-role="notes-compose-label"]');
         var composeToolbar = modal.querySelector('[data-role="notes-compose-toolbar"]');
         var cancelEditBtn = modal.querySelector('[data-role="notes-cancel-edit"]');
+        var deleteYesBtn = document.getElementById('notes-delete-confirm-yes');
+        var deleteNoBtn = document.getElementById('notes-delete-confirm-no');
         var pollTimer = null;
         var sendInFlight = false;
         var loadInFlight = false;
@@ -2206,7 +2213,7 @@ $moiraiJsKeys = [
             closeNotesDeleteConfirm();
         }
 
-        window.openNotesModal = function (device) {
+        openNotesModal = function (device) {
             state.notesDevice = device;
             modal.hidden = false;
             modal.classList.add('is-open');
@@ -2222,12 +2229,7 @@ $moiraiJsKeys = [
             startPolling();
         };
 
-        window.closeNotesDeleteConfirm = function () {
-            state.pendingDeleteNoteId = null;
-            closeBackdrop('notes-delete-confirm-modal');
-        };
-
-        window.confirmDeleteNote = function () {
+        confirmDeleteNote = function () {
             var noteId = state.pendingDeleteNoteId;
             if (!noteId) {
                 closeNotesDeleteConfirm();
@@ -2339,6 +2341,12 @@ $moiraiJsKeys = [
         }
         if (cancelEditBtn) {
             cancelEditBtn.addEventListener('click', cancelEdit);
+        }
+        if (deleteYesBtn) {
+            deleteYesBtn.addEventListener('click', function () { confirmDeleteNote(); });
+        }
+        if (deleteNoBtn) {
+            deleteNoBtn.addEventListener('click', closeNotesDeleteConfirm);
         }
         if (inputEl) {
             inputEl.addEventListener('input', resizeInput);

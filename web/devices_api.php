@@ -29,7 +29,12 @@ try {
                     $threadKeys[] = moirai_device_notes_thread_key($typeKey, $deviceKey);
                 }
             }
-            $lastNotes = KvtChat::lastMapped($threadKeys, false);
+            $lastNotes = [];
+            try {
+                $lastNotes = KvtChat::lastMapped($threadKeys, false);
+            } catch (Throwable $error) {
+                error_log('KvtChat lastMapped failed: ' . $error->getMessage());
+            }
             foreach ($devices as &$device) {
                 $deviceKey = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));
                 $threadKey = $deviceKey !== '' ? moirai_device_notes_thread_key($typeKey, $deviceKey) : '';

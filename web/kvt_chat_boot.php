@@ -56,4 +56,9 @@ if (!KvtChat::isConfigured()) {
 }
 
 // Ensure schema exists and legacy device_notes are imported once.
-KvtChat::store();
+// Never take down the host page if SQLite cannot be written (common on fresh FTP deploys).
+try {
+    KvtChat::store();
+} catch (Throwable $error) {
+    error_log('KvtChat store init failed: ' . $error->getMessage());
+}

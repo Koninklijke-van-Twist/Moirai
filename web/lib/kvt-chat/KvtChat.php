@@ -89,7 +89,7 @@ final class KvtChat
     {
         self::assertConfigured();
         $base = rtrim((string) self::$config['avatar_url'], '?&');
-        $sep = str_contains($base, '?') ? '&' : '?';
+        $sep = strpos($base, '?') !== false ? '&' : '?';
 
         return $base . $sep . 'email=' . rawurlencode(strtolower(trim($email)));
     }
@@ -444,11 +444,14 @@ final class KvtChat
     private static function normalizePermission(string $value): string
     {
         $value = strtolower(trim($value));
-        return match ($value) {
-            'yes', 'true', '1', 'all' => 'yes',
-            'no', 'false', '0', 'none' => 'no',
-            default => 'own',
-        };
+        if (in_array($value, ['yes', 'true', '1', 'all'], true)) {
+            return 'yes';
+        }
+        if (in_array($value, ['no', 'false', '0', 'none'], true)) {
+            return 'no';
+        }
+
+        return 'own';
     }
 
     /**

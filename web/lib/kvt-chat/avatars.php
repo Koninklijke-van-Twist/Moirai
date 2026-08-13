@@ -97,7 +97,7 @@ function kvt_chat_mix_hex_with_white(string $hex, float $amountTowardWhite): str
     return sprintf('#%02x%02x%02x', $mix($red), $mix($green), $mix($blue));
 }
 
-function kvt_chat_chat_colors_from_hex(string $hex): array
+function kvt_chat_colors_from_hex(string $hex): array
 {
     $hex = kvt_chat_normalize_hex_color($hex) ?? '#64748b';
     [$red, $green, $blue] = kvt_chat_hex_to_rgb($hex);
@@ -113,14 +113,26 @@ function kvt_chat_chat_colors_from_hex(string $hex): array
     ];
 }
 
-function kvt_chat_chat_colors_for_email(string $email): array
+function kvt_chat_colors_for_email(string $email): array
 {
     $configured = kvt_chat_configured_user_color($email);
     if ($configured !== null) {
-        return kvt_chat_chat_colors_from_hex($configured);
+        return kvt_chat_colors_from_hex($configured);
     }
 
     return kvt_chat_color_from_text($email);
+}
+
+/** @deprecated Use kvt_chat_colors_from_hex() */
+function kvt_chat_chat_colors_from_hex(string $hex): array
+{
+    return kvt_chat_colors_from_hex($hex);
+}
+
+/** @deprecated Use kvt_chat_colors_for_email() */
+function kvt_chat_chat_colors_for_email(string $email): array
+{
+    return kvt_chat_colors_for_email($email);
 }
 
 function kvt_chat_hash_text_for_color(string $text): int

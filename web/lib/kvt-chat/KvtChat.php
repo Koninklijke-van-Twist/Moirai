@@ -276,7 +276,8 @@ final class KvtChat
         } catch (InvalidArgumentException $error) {
             self::jsonError($error->getMessage(), 400);
         } catch (Throwable $error) {
-            self::jsonError('Request failed.', 500);
+            error_log('KvtChat API error: ' . $error->getMessage());
+            self::jsonError('Request failed: ' . $error->getMessage(), 500);
         }
     }
 

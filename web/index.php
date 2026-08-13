@@ -39,7 +39,7 @@ $moiraiJsKeys = [
     <title><?= moirai_h(LOC('moirai.title')) ?></title>
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">
-    <link rel="manifest" href="site.webmanifest">
+    <link rel="manifest" href="manifest.php">
     <link rel="stylesheet" href="brand.css">
     <style>
         *, *::before, *::after { box-sizing: border-box; }

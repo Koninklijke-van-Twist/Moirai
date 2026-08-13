@@ -14,7 +14,7 @@ $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.unnamed', 'moirai.filter.all',
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
-    'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
+    'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve',
@@ -22,6 +22,10 @@ $moiraiJsKeys = [
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
     'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
     'moirai.error.print_failed',
+    'moirai.notes.title', 'moirai.notes.messages', 'moirai.notes.empty', 'moirai.notes.message_label', 'moirai.notes.edit_label',
+    'moirai.notes.load_failed', 'moirai.notes.send_failed', 'moirai.notes.save_failed', 'moirai.notes.delete_failed',
+    'moirai.notes.cancel_edit', 'moirai.notes.edited_suffix', 'moirai.notes.delete.confirm.title', 'moirai.notes.delete.confirm.body',
+    'moirai.notes.btn.delete_confirm',
 ];
 
 ?>
@@ -578,6 +582,258 @@ $moiraiJsKeys = [
             font-weight: 700;
             color: var(--kvt-perkins-blue);
         }
+
+        .notes-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: rgba(15, 35, 63, 0.45);
+        }
+
+        .notes-overlay.is-open {
+            display: flex;
+        }
+
+        .notes-dialog {
+            width: min(720px, 96vw);
+            max-height: min(88vh, 820px);
+            min-height: min(70vh, 560px);
+            display: flex;
+            flex-direction: column;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 24px 60px rgba(15, 35, 63, 0.22);
+            overflow: hidden;
+        }
+
+        .notes-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--kvt-line);
+            flex: 0 0 auto;
+        }
+
+        .notes-head h2 {
+            margin: 0;
+            font-size: 1.15rem;
+            color: var(--kvt-perkins-blue);
+        }
+
+        .notes-close {
+            border: 0;
+            background: transparent;
+            font-size: 1.6rem;
+            line-height: 1;
+            cursor: pointer;
+            color: var(--kvt-muted);
+            padding: 2px 8px;
+            border-radius: 8px;
+        }
+
+        .notes-close:hover,
+        .notes-close:focus-visible {
+            background: #f1f5f9;
+            color: var(--kvt-text);
+            outline: none;
+        }
+
+        .notes-chat.ponos-detail-chat {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            padding: 18px 20px 20px;
+            background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+        }
+
+        .notes-dialog .ponos-detail-chat-title {
+            margin: 0 0 12px;
+            flex: 0 0 auto;
+            font-size: 1rem;
+            color: var(--kvt-perkins-blue);
+        }
+
+        .notes-dialog .ponos-messages {
+            display: grid;
+            gap: 10px;
+            flex: 1 1 0;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: visible;
+            padding: 0 4px 0 12px;
+            align-content: start;
+        }
+
+        .notes-dialog .ponos-message-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0;
+            overflow: visible;
+        }
+
+        .notes-dialog .ponos-message-avatar-wrap {
+            flex: 0 0 30px;
+            margin-right: -9px;
+            margin-top: 6px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .notes-dialog .ponos-message-row .ponos-message {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .notes-dialog .ponos-message {
+            border: 1px solid var(--kvt-line);
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+
+        .notes-dialog .ponos-message-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 0.82rem;
+        }
+
+        .notes-dialog .ponos-message-email {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+        }
+
+        .notes-dialog .ponos-message-actions {
+            display: inline-flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+
+        .notes-dialog .ponos-message-action {
+            border: 1px solid var(--kvt-line);
+            background: #fff;
+            color: var(--kvt-muted);
+            border-radius: 8px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            line-height: 1.4;
+        }
+
+        .notes-dialog .ponos-message-action:hover,
+        .notes-dialog .ponos-message-action:focus-visible {
+            color: var(--kvt-text);
+            border-color: var(--kvt-main-blue);
+            outline: none;
+        }
+
+        .notes-dialog .ponos-message-action.is-danger:hover,
+        .notes-dialog .ponos-message-action.is-danger:focus-visible {
+            color: var(--kvt-danger);
+            border-color: var(--kvt-danger);
+        }
+
+        .notes-dialog .ponos-user-avatar {
+            width: 30px;
+            height: 30px;
+            flex: 0 0 30px;
+            display: block;
+            border: 1px solid;
+            border-radius: 4px;
+            background: #fff;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            object-fit: none;
+        }
+
+        .notes-dialog .ponos-message-compose {
+            display: grid;
+            gap: 8px;
+            flex: 0 0 auto;
+            flex-shrink: 0;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--kvt-line);
+            background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+        }
+
+        .notes-dialog .ponos-compose-label {
+            display: block;
+            font-weight: 700;
+            color: var(--kvt-perkins-blue);
+            font-size: 0.9rem;
+        }
+
+        .notes-dialog .ponos-compose-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .notes-dialog .ponos-message-input {
+            width: 100%;
+            min-height: 2.75rem;
+            max-height: min(32vh, 280px);
+            resize: none;
+            overflow-y: hidden;
+            font: inherit;
+            border-radius: 10px;
+            border: 1px solid var(--kvt-line);
+            padding: 10px 12px;
+            box-sizing: border-box;
+            line-height: 1.45;
+        }
+
+        .notes-dialog .ponos-text-link {
+            color: var(--kvt-main-blue);
+        }
+
+        .notes-empty {
+            margin: 0 0 8px;
+            flex: 0 0 auto;
+            color: var(--kvt-muted);
+        }
+
+        .notes-feedback {
+            margin: 0;
+            padding: 8px 18px 14px;
+            flex: 0 0 auto;
+            color: var(--kvt-muted);
+        }
+
+        .notes-feedback.is-error {
+            color: var(--kvt-danger);
+        }
+
+        .modal-backdrop.confirm-layer.notes-confirm-layer {
+            z-index: 1300;
+        }
+
+        @media (max-width: 540px) {
+            .notes-dialog {
+                width: 100%;
+                max-height: 94vh;
+                min-height: 70vh;
+                border-radius: 12px;
+            }
+
+            .notes-chat.ponos-detail-chat {
+                padding: 14px 14px 16px;
+            }
+        }
     </style>
     <?php renderMoiraiLanguageRailStyles(); ?>
 </head>
@@ -687,6 +943,44 @@ $moiraiJsKeys = [
     </div>
 </div>
 
+<div class="notes-overlay" id="notes-modal" hidden aria-hidden="true" data-role="notes-modal">
+    <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="notes-title">
+        <div class="notes-head">
+            <h2 id="notes-title"><?= moirai_h(LOC('moirai.notes.title')) ?></h2>
+            <button type="button" class="notes-close" data-role="notes-close"
+                aria-label="<?= moirai_h(LOC('moirai.notes.close')) ?>">&times;</button>
+        </div>
+        <div class="notes-chat ponos-detail-chat">
+            <h3 class="ponos-detail-chat-title"><?= moirai_h(LOC('moirai.notes.messages')) ?></h3>
+            <div class="ponos-messages" data-role="notes-messages" aria-live="polite"></div>
+            <p class="notes-empty" data-role="notes-empty" hidden><?= moirai_h(LOC('moirai.notes.empty')) ?></p>
+            <div class="ponos-message-compose">
+                <label class="ponos-compose-label" for="notes-message-text" data-role="notes-compose-label"><?= moirai_h(LOC('moirai.notes.message_label')) ?></label>
+                <textarea id="notes-message-text" class="ponos-message-input" data-role="notes-input"
+                    rows="1" maxlength="4000"></textarea>
+                <div class="ponos-compose-toolbar" data-role="notes-compose-toolbar" hidden>
+                    <button type="button" class="btn btn-secondary" data-role="notes-cancel-edit"><?= moirai_h(LOC('moirai.notes.cancel_edit')) ?></button>
+                </div>
+            </div>
+        </div>
+        <p class="notes-feedback" data-role="notes-feedback" hidden></p>
+    </div>
+</div>
+
+<div class="modal-backdrop confirm-layer notes-confirm-layer" id="notes-delete-confirm-modal" aria-hidden="true">
+    <div class="modal confirm-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="notes-delete-confirm-title">
+        <div class="hazard-tape" aria-hidden="true"></div>
+        <div class="confirm-delete-body">
+            <h2 id="notes-delete-confirm-title"><?= moirai_h(LOC('moirai.notes.delete.confirm.title')) ?></h2>
+            <p><?= moirai_h(LOC('moirai.notes.delete.confirm.body')) ?></p>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-danger" id="notes-delete-confirm-yes"><?= moirai_h(LOC('moirai.notes.btn.delete_confirm')) ?></button>
+                <button type="button" class="btn btn-secondary" id="notes-delete-confirm-no"><?= moirai_h(LOC('moirai.btn.cancel')) ?></button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     var isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
@@ -703,7 +997,10 @@ $moiraiJsKeys = [
         users: [],
         currentDevice: null,
         editing: false,
-        pendingDeleteDevice: null
+        pendingDeleteDevice: null,
+        notesDevice: null,
+        notesEditingId: null,
+        pendingDeleteNoteId: null
     };
     var listRequestId = 0;
 
@@ -1144,6 +1441,13 @@ $moiraiJsKeys = [
         historyBtn.textContent = t('moirai.btn.history');
         historyBtn.addEventListener('click', function () { openHistoryModal(device); });
         modalActions.appendChild(historyBtn);
+
+        var notesBtn = document.createElement('button');
+        notesBtn.type = 'button';
+        notesBtn.className = 'btn btn-secondary';
+        notesBtn.textContent = t('moirai.btn.notes');
+        notesBtn.addEventListener('click', function () { openNotesModal(device); });
+        modalActions.appendChild(notesBtn);
 
         var printBtn = document.createElement('button');
         printBtn.type = 'button';
@@ -1619,12 +1923,16 @@ $moiraiJsKeys = [
         });
     });
 
-    ['assign-modal', 'history-modal', 'delete-confirm-modal'].forEach(function (id) {
+    ['assign-modal', 'history-modal', 'delete-confirm-modal', 'notes-delete-confirm-modal'].forEach(function (id) {
         var backdrop = document.getElementById(id);
         backdrop.addEventListener('click', function (event) {
             if (event.target === backdrop) {
                 if (id === 'delete-confirm-modal') {
                     closeDeleteConfirm();
+                    return;
+                }
+                if (id === 'notes-delete-confirm-modal') {
+                    closeNotesDeleteConfirm();
                     return;
                 }
                 closeBackdrop(id);
@@ -1634,6 +1942,415 @@ $moiraiJsKeys = [
 
     document.getElementById('delete-confirm-yes').addEventListener('click', confirmDeleteDevice);
     document.getElementById('delete-confirm-no').addEventListener('click', closeDeleteConfirm);
+    document.getElementById('notes-delete-confirm-yes').addEventListener('click', confirmDeleteNote);
+    document.getElementById('notes-delete-confirm-no').addEventListener('click', closeNotesDeleteConfirm);
+
+    (function initNotesModal() {
+        var modal = document.getElementById('notes-modal');
+        if (!modal) {
+            return;
+        }
+        var closeButton = modal.querySelector('[data-role="notes-close"]');
+        var messagesEl = modal.querySelector('[data-role="notes-messages"]');
+        var emptyEl = modal.querySelector('[data-role="notes-empty"]');
+        var inputEl = modal.querySelector('[data-role="notes-input"]');
+        var feedbackEl = modal.querySelector('[data-role="notes-feedback"]');
+        var composeLabel = modal.querySelector('[data-role="notes-compose-label"]');
+        var composeToolbar = modal.querySelector('[data-role="notes-compose-toolbar"]');
+        var cancelEditBtn = modal.querySelector('[data-role="notes-cancel-edit"]');
+        var pollTimer = null;
+        var sendInFlight = false;
+        var loadInFlight = false;
+        var messagesById = {};
+
+        function deviceKey(device) {
+            if (!device) {
+                return '';
+            }
+            return String(device[keyField(state.tab)] || device.id || '').trim();
+        }
+
+        function escapeAttr(value) {
+            return escapeHtml(value).replace(/'/g, '&#039;');
+        }
+
+        function hashTextForColor(value) {
+            var hash = 0;
+            var text = String(value || '');
+            for (var i = 0; i < text.length; i += 1) {
+                hash = text.charCodeAt(i) + ((hash << 5) - hash);
+                hash = hash & 0x7fffffff;
+            }
+            return hash;
+        }
+
+        function colorFromText(text) {
+            var normalized = String(text || '').toLowerCase().trim();
+            if (normalized === '') {
+                return {
+                    border: '#cbd5e1',
+                    chipBackground: '#e2e8f0',
+                    cardBackground: '#ffffff',
+                    chipTextColor: '#334155'
+                };
+            }
+            var hash = hashTextForColor(normalized);
+            var hue = Math.abs(hash) % 360;
+            var saturation = 72 + (Math.abs(hash >> 8) % 14);
+            var lightness = 56 + (Math.abs(hash >> 16) % 10);
+            var chipTextColor = lightness >= 58 ? '#1e293b' : '#ffffff';
+            return {
+                border: 'hsl(' + hue + ', ' + saturation + '%, ' + Math.max(lightness - 6, 48) + '%)',
+                chipBackground: 'hsl(' + hue + ', ' + saturation + '%, ' + lightness + '%)',
+                cardBackground: 'hsl(' + hue + ', ' + Math.min(saturation, 48) + '%, 96%)',
+                chipTextColor: chipTextColor
+            };
+        }
+
+        function trimLinkTrailingPunctuation(value) {
+            return String(value || '').replace(/[.,;:!?)\]]+$/, '');
+        }
+
+        function linkifyEscapedHtml(escaped) {
+            var pattern = /\b((?:https?:\/\/|www\.)[^\s<]+|[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi;
+            return escaped.replace(pattern, function (match) {
+                if (match.indexOf('@') >= 0) {
+                    return '<a class="ponos-text-link" href="mailto:' + escapeAttr(match) + '">' + match + '</a>';
+                }
+                var trimmed = trimLinkTrailingPunctuation(match);
+                var suffix = match.slice(trimmed.length);
+                var href = trimmed;
+                if (/^www\./i.test(href)) {
+                    href = 'https://' + href;
+                }
+                if (!/^https?:\/\//i.test(href)) {
+                    return match;
+                }
+                return '<a class="ponos-text-link" href="' + escapeAttr(href) + '" target="_blank" rel="noopener noreferrer">'
+                    + trimmed + '</a>' + suffix;
+            });
+        }
+
+        function formatDescriptionHtml(value) {
+            return linkifyEscapedHtml(escapeHtml(value).replace(/\r\n|\r|\n/g, '<br/>'));
+        }
+
+        function userAvatarUrl(email) {
+            var normalized = String(email || '').toLowerCase().trim();
+            if (normalized === '') {
+                return '';
+            }
+            return 'user_avatar.php?email=' + encodeURIComponent(normalized);
+        }
+
+        function renderUserAvatarHtml(email, colors) {
+            var normalized = String(email || '').toLowerCase().trim();
+            if (normalized === '') {
+                return '';
+            }
+            var url = userAvatarUrl(normalized);
+            if (url === '') {
+                return '';
+            }
+            return '<img class="ponos-user-avatar" src="' + escapeHtml(url) + '" width="30" height="30" alt="" style="border-color:'
+                + escapeHtml(colors.border) + '">';
+        }
+
+        function renderMessageHtml(message) {
+            var email = String(message.user_email || '').toLowerCase().trim();
+            var authorName = String(message.user_label || '').trim() || email || t('moirai.unknown_user');
+            var colors = (message.colors && typeof message.colors === 'object')
+                ? message.colors
+                : colorFromText(email);
+            var timeLabel = String(message.created_at_label || '');
+            if (message.updated_at) {
+                timeLabel += t('moirai.notes.edited_suffix');
+            }
+            var html = '';
+            html += '<div class="ponos-message-row" data-message-id="' + escapeAttr(String(message.id || '')) + '">';
+            html += '<div class="ponos-message-avatar-wrap">' + renderUserAvatarHtml(email, colors) + '</div>';
+            html += '<article class="ponos-message" style="border-color:' + escapeHtml(colors.border)
+                + ';background:' + escapeHtml(colors.cardBackground) + '">';
+            html += '<div class="ponos-message-meta"><span class="ponos-message-email" style="background:'
+                + escapeHtml(colors.chipBackground) + ';color:' + escapeHtml(colors.chipTextColor) + '">'
+                + escapeHtml(authorName) + '</span><span>' + escapeHtml(timeLabel) + '</span>';
+            if (message.can_edit || message.can_delete) {
+                html += '<span class="ponos-message-actions">';
+                if (message.can_edit) {
+                    html += '<button type="button" class="ponos-message-action" data-note-edit="'
+                        + escapeAttr(String(message.id || '')) + '">' + escapeHtml(t('moirai.btn.edit')) + '</button>';
+                }
+                if (message.can_delete) {
+                    html += '<button type="button" class="ponos-message-action is-danger" data-note-delete="'
+                        + escapeAttr(String(message.id || '')) + '">' + escapeHtml(t('moirai.btn.delete')) + '</button>';
+                }
+                html += '</span>';
+            }
+            html += '</div>';
+            html += '<div>' + formatDescriptionHtml(message.message_text || '') + '</div>';
+            html += '</article></div>';
+            return html;
+        }
+
+        function scrollMessagesToEnd() {
+            if (!messagesEl) {
+                return;
+            }
+            window.requestAnimationFrame(function () {
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+            });
+        }
+
+        function resizeInput() {
+            if (!inputEl) {
+                return;
+            }
+            var maxHeight = Math.min(window.innerHeight * 0.32, 280);
+            inputEl.style.height = 'auto';
+            var nextHeight = Math.min(inputEl.scrollHeight, maxHeight);
+            inputEl.style.height = nextHeight + 'px';
+            inputEl.style.overflowY = inputEl.scrollHeight > maxHeight ? 'auto' : 'hidden';
+        }
+
+        function showFeedback(message, isError) {
+            if (!feedbackEl) {
+                return;
+            }
+            feedbackEl.textContent = message || '';
+            feedbackEl.hidden = !message;
+            feedbackEl.classList.toggle('is-error', !!isError);
+        }
+
+        function setComposeMode(editingId) {
+            state.notesEditingId = editingId || null;
+            if (composeLabel) {
+                composeLabel.textContent = state.notesEditingId
+                    ? t('moirai.notes.edit_label')
+                    : t('moirai.notes.message_label');
+            }
+            if (composeToolbar) {
+                composeToolbar.hidden = !state.notesEditingId;
+            }
+        }
+
+        function cancelEdit() {
+            setComposeMode(null);
+            if (inputEl) {
+                inputEl.value = '';
+                resizeInput();
+            }
+            showFeedback('');
+        }
+
+        function setMessages(messages) {
+            if (!messagesEl) {
+                return;
+            }
+            var list = Array.isArray(messages) ? messages : [];
+            messagesById = {};
+            messagesEl.innerHTML = '';
+            list.forEach(function (message) {
+                var id = String(message.id || '');
+                if (id === '') {
+                    return;
+                }
+                messagesById[id] = message;
+                messagesEl.insertAdjacentHTML('beforeend', renderMessageHtml(message));
+            });
+            if (emptyEl) {
+                emptyEl.hidden = Object.keys(messagesById).length > 0;
+            }
+            scrollMessagesToEnd();
+        }
+
+        function loadNotes() {
+            var device = state.notesDevice;
+            var id = deviceKey(device);
+            if (!device || id === '' || loadInFlight) {
+                return Promise.resolve();
+            }
+            loadInFlight = true;
+            return fetchJson(apiUrl({ action: 'notes_list', type: state.tab, id: id })).then(function (data) {
+                loadInFlight = false;
+                showFeedback('');
+                setMessages(data.messages || []);
+            }).catch(function () {
+                loadInFlight = false;
+                showFeedback(t('moirai.notes.load_failed'), true);
+            });
+        }
+
+        function stopPolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        function startPolling() {
+            stopPolling();
+            pollTimer = setInterval(function () {
+                if (!modal.hidden) {
+                    loadNotes();
+                }
+            }, 12000);
+        }
+
+        function closeNotesModal() {
+            modal.hidden = true;
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+            stopPolling();
+            cancelEdit();
+            state.notesDevice = null;
+            closeNotesDeleteConfirm();
+        }
+
+        window.openNotesModal = function (device) {
+            state.notesDevice = device;
+            modal.hidden = false;
+            modal.classList.add('is-open');
+            modal.setAttribute('aria-hidden', 'false');
+            showFeedback('');
+            cancelEdit();
+            loadNotes().then(function () {
+                resizeInput();
+                if (inputEl) {
+                    inputEl.focus();
+                }
+            });
+            startPolling();
+        };
+
+        window.closeNotesDeleteConfirm = function () {
+            state.pendingDeleteNoteId = null;
+            closeBackdrop('notes-delete-confirm-modal');
+        };
+
+        window.confirmDeleteNote = function () {
+            var noteId = state.pendingDeleteNoteId;
+            if (!noteId) {
+                closeNotesDeleteConfirm();
+                return;
+            }
+            fetchJson(apiUrl({ action: 'notes_delete' }), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ note_id: Number(noteId) })
+            }).then(function () {
+                closeNotesDeleteConfirm();
+                if (state.notesEditingId && String(state.notesEditingId) === String(noteId)) {
+                    cancelEdit();
+                }
+                return loadNotes();
+            }).catch(function () {
+                showFeedback(t('moirai.notes.delete_failed'), true);
+                closeNotesDeleteConfirm();
+            });
+        };
+
+        function beginEdit(noteId) {
+            var message = messagesById[String(noteId)];
+            if (!message || !inputEl) {
+                return;
+            }
+            setComposeMode(String(noteId));
+            inputEl.value = String(message.message_text || '');
+            resizeInput();
+            inputEl.focus();
+        }
+
+        function askDelete(noteId) {
+            state.pendingDeleteNoteId = String(noteId);
+            openBackdrop('notes-delete-confirm-modal');
+        }
+
+        function sendOrSave() {
+            if (!inputEl || sendInFlight || !state.notesDevice) {
+                return;
+            }
+            var text = String(inputEl.value || '').trim();
+            if (text === '') {
+                return;
+            }
+            sendInFlight = true;
+            showFeedback('');
+            var editingId = state.notesEditingId;
+            var request;
+            if (editingId) {
+                request = fetchJson(apiUrl({ action: 'notes_edit' }), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        note_id: Number(editingId),
+                        message_text: text
+                    })
+                });
+            } else {
+                request = fetchJson(apiUrl({ action: 'notes_add' }), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: state.tab,
+                        id: deviceKey(state.notesDevice),
+                        message_text: text
+                    })
+                });
+            }
+            request.then(function () {
+                sendInFlight = false;
+                cancelEdit();
+                return loadNotes();
+            }).catch(function () {
+                sendInFlight = false;
+                showFeedback(editingId ? t('moirai.notes.save_failed') : t('moirai.notes.send_failed'), true);
+            });
+        }
+
+        if (closeButton) {
+            closeButton.addEventListener('click', closeNotesModal);
+        }
+        modal.addEventListener('click', function (event) {
+            if (event.target === modal) {
+                closeNotesModal();
+            }
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !modal.hidden) {
+                if (document.getElementById('notes-delete-confirm-modal').classList.contains('is-open')) {
+                    closeNotesDeleteConfirm();
+                    return;
+                }
+                closeNotesModal();
+            }
+        });
+        if (messagesEl) {
+            messagesEl.addEventListener('click', function (event) {
+                var editBtn = event.target.closest('[data-note-edit]');
+                if (editBtn) {
+                    beginEdit(editBtn.getAttribute('data-note-edit'));
+                    return;
+                }
+                var deleteBtn = event.target.closest('[data-note-delete]');
+                if (deleteBtn) {
+                    askDelete(deleteBtn.getAttribute('data-note-delete'));
+                }
+            });
+        }
+        if (cancelEditBtn) {
+            cancelEditBtn.addEventListener('click', cancelEdit);
+        }
+        if (inputEl) {
+            inputEl.addEventListener('input', resizeInput);
+            inputEl.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    sendOrSave();
+                }
+            });
+            resizeInput();
+        }
+    })();
 
     if (isAdmin) {
         document.getElementById('add-device-btn').addEventListener('click', function () {

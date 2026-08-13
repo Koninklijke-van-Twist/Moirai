@@ -106,6 +106,49 @@ try {
             moirai_json_response(['ok' => true]);
             break;
 
+        case 'notes_list':
+            $type = trim((string) ($_GET['type'] ?? ''));
+            $id = trim((string) ($_GET['id'] ?? ''));
+            moirai_json_response([
+                'ok' => true,
+                'messages' => moirai_list_device_notes($type, $id),
+            ]);
+            break;
+
+        case 'notes_add':
+            $payload = json_decode((string) file_get_contents('php://input'), true);
+            if (!is_array($payload)) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
+            }
+            $message = moirai_add_device_note(
+                (string) ($payload['type'] ?? ''),
+                (string) ($payload['id'] ?? ''),
+                (string) ($payload['message_text'] ?? '')
+            );
+            moirai_json_response(['ok' => true, 'message' => $message]);
+            break;
+
+        case 'notes_edit':
+            $payload = json_decode((string) file_get_contents('php://input'), true);
+            if (!is_array($payload)) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
+            }
+            $message = moirai_update_device_note(
+                (int) ($payload['note_id'] ?? 0),
+                (string) ($payload['message_text'] ?? '')
+            );
+            moirai_json_response(['ok' => true, 'message' => $message]);
+            break;
+
+        case 'notes_delete':
+            $payload = json_decode((string) file_get_contents('php://input'), true);
+            if (!is_array($payload)) {
+                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
+            }
+            moirai_delete_device_note((int) ($payload['note_id'] ?? 0));
+            moirai_json_response(['ok' => true]);
+            break;
+
         default:
             moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.unknown_action')], 400);
     }

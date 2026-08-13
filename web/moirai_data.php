@@ -1,10 +1,10 @@
 <?php
 
-require_once __DIR__ . '/moirai_chat.php';
+require_once __DIR__ . '/lib/kvt-chat/KvtChat.php';
 
 const MOIRAI_DB_FILE = __DIR__ . '/data/moirai.sqlite';
 const MOIRAI_FILTER_CACHE_FILE = __DIR__ . '/data/filter_cache.json';
-const MOIRAI_NOTE_MAX_LENGTH = 4000;
+const MOIRAI_UNAVAILABLE_EMAIL = '__unavailable__';
 
 const MOIRAI_LAPTOP_FIELDS = [
     'model',
@@ -429,20 +429,6 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'phones', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
     moirai_migrate_laptop_os_column($pdo);
     moirai_migrate_legacy_device_values($pdo);
-
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS device_notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_type TEXT NOT NULL,
-            device_key TEXT NOT NULL,
-            author_email TEXT NOT NULL,
-            author_naam TEXT NOT NULL DEFAULT '',
-            body TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT
-        )
-    ");
-    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_device_notes_device ON device_notes(device_type, device_key, id)');
 }
 
 function moirai_migrate_laptop_os_column(PDO $pdo): void
@@ -862,11 +848,46 @@ function moirai_normalize_user(mixed $user): ?array
         return null;
     }
 
+    if ($email === MOIRAI_UNAVAILABLE_EMAIL) {
+        return moirai_unavailable_user();
+    }
+
     return [
         'id' => trim((string) ($user['id'] ?? $user['Id'] ?? '')),
         'naam' => trim((string) ($user['naam'] ?? $user['Naam'] ?? '')),
         'email' => $email,
     ];
+}
+
+function moirai_unavailable_user(): array
+{
+    return [
+        'id' => '',
+        'naam' => moirai_loc('moirai.badge.unavailable'),
+        'email' => MOIRAI_UNAVAILABLE_EMAIL,
+    ];
+}
+
+function moirai_is_unavailable_user(?array $user): bool
+{
+    $user = moirai_normalize_user($user);
+    return $user !== null && ($user['email'] ?? '') === MOIRAI_UNAVAILABLE_EMAIL;
+}
+
+/**
+ * @return 'assigned'|'reserve'|'unavailable'
+ */
+function moirai_device_status(array $device): string
+{
+    $user = moirai_normalize_user($device['uitgegeven_aan'] ?? null);
+    if ($user === null) {
+        return 'reserve';
+    }
+    if (($user['email'] ?? '') === MOIRAI_UNAVAILABLE_EMAIL) {
+        return 'unavailable';
+    }
+
+    return 'assigned';
 }
 
 function moirai_users_match(?array $left, ?array $right): bool
@@ -906,12 +927,14 @@ function moirai_row_to_device(array $row, string $typeKey): array
     }
 
     $uitgegeven = null;
-    $email = trim((string) ($row['uitgegeven_email'] ?? ''));
-    if ($email !== '') {
+    $email = strtolower(trim((string) ($row['uitgegeven_email'] ?? '')));
+    if ($email === MOIRAI_UNAVAILABLE_EMAIL) {
+        $uitgegeven = moirai_unavailable_user();
+    } elseif ($email !== '') {
         $uitgegeven = [
             'id' => trim((string) ($row['uitgegeven_user_id'] ?? '')),
             'naam' => trim((string) ($row['uitgegeven_naam'] ?? '')),
-            'email' => strtolower($email),
+            'email' => $email,
         ];
     }
 
@@ -1045,6 +1068,10 @@ function moirai_validate_user_assignment(?array $user, array $allowedUsers): ?ar
     $user = moirai_normalize_user($user);
     if ($user === null) {
         return null;
+    }
+
+    if (($user['email'] ?? '') === MOIRAI_UNAVAILABLE_EMAIL) {
+        return moirai_unavailable_user();
     }
 
     foreach ($allowedUsers as $allowed) {
@@ -1259,8 +1286,39 @@ function moirai_delete_device(string $type, string $key): void
         throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
     }
 
-    moirai_delete_notes_for_device($typeKey, $key);
+    moirai_delete_device_notes_thread($typeKey, $key);
     moirai_cache_remove_device_values($typeKey, $device);
+}
+
+function moirai_device_notes_thread_key(string $typeKey, string $deviceKey): string
+{
+    return 'device:' . $typeKey . ':' . $deviceKey;
+}
+
+function moirai_ensure_kvt_chat(): void
+{
+    if (KvtChat::isConfigured()) {
+        return;
+    }
+
+    KvtChat::configure([
+        'pdo' => moirai_db(),
+        'avatar_dir' => __DIR__ . '/data/user_avatars',
+        'avatar_url' => 'lib/kvt-chat/avatar.php',
+        'api_url' => 'lib/kvt-chat/api.php',
+        'migrate_device_notes' => true,
+        'viewer' => static fn(): array => [
+            'email' => moirai_current_user_email(),
+            'name' => moirai_current_user_name(),
+        ],
+        'is_admin' => static fn(): bool => moirai_is_admin(),
+    ]);
+}
+
+function moirai_delete_device_notes_thread(string $typeKey, string $deviceKey): void
+{
+    moirai_ensure_kvt_chat();
+    KvtChat::deleteThread(moirai_device_notes_thread_key($typeKey, $deviceKey));
 }
 
 function moirai_parse_list_filters(string $type): array
@@ -1332,11 +1390,14 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
         }
     }
 
-    $assigned = moirai_normalize_user($device['uitgegeven_aan'] ?? null) !== null;
-    if ($status === 'assigned' && !$assigned) {
+    $statusKey = moirai_device_status($device);
+    if ($status === 'assigned' && $statusKey !== 'assigned') {
         return false;
     }
-    if ($status === 'reserve' && $assigned) {
+    if ($status === 'reserve' && $statusKey !== 'reserve') {
+        return false;
+    }
+    if ($status === 'unavailable' && $statusKey !== 'unavailable') {
         return false;
     }
 
@@ -1448,187 +1509,4 @@ function moirai_current_user_name(): string
     }
 
     return moirai_current_user_email();
-}
-
-function moirai_delete_notes_for_device(string $typeKey, string $deviceKey): void
-{
-    $pdo = moirai_db();
-    $stmt = $pdo->prepare('DELETE FROM device_notes WHERE device_type = :type AND device_key = :key');
-    $stmt->execute([
-        'type' => $typeKey,
-        'key' => $deviceKey,
-    ]);
-}
-
-/**
- * @return list<array<string, mixed>>
- */
-function moirai_list_device_notes(string $type, string $deviceKey): array
-{
-    $typeKey = moirai_type_key($type);
-    $deviceKey = trim($deviceKey);
-    if ($typeKey === null || $deviceKey === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
-    }
-
-    if (moirai_get_device($typeKey, $deviceKey) === null) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
-    }
-
-    $pdo = moirai_db();
-    $stmt = $pdo->prepare(
-        'SELECT id, author_email, author_naam, body, created_at, updated_at
-         FROM device_notes
-         WHERE device_type = :type AND device_key = :key
-         ORDER BY id ASC'
-    );
-    $stmt->execute([
-        'type' => $typeKey,
-        'key' => $deviceKey,
-    ]);
-
-    $viewerEmail = moirai_current_user_email();
-    $viewerIsAdmin = moirai_is_admin();
-    $notes = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $notes[] = moirai_map_note_for_api($row, $viewerEmail, $viewerIsAdmin);
-    }
-
-    return $notes;
-}
-
-/**
- * @return array<string, mixed>
- */
-function moirai_add_device_note(string $type, string $deviceKey, string $body): array
-{
-    $typeKey = moirai_type_key($type);
-    $deviceKey = trim($deviceKey);
-    $body = trim($body);
-    $email = moirai_current_user_email();
-
-    if ($typeKey === null || $deviceKey === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
-    }
-    if ($email === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.forbidden'));
-    }
-    if ($body === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_empty'));
-    }
-    if (mb_strlen($body) > MOIRAI_NOTE_MAX_LENGTH) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_too_long'));
-    }
-    if (moirai_get_device($typeKey, $deviceKey) === null) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
-    }
-
-    $now = (new DateTimeImmutable('now'))->format('c');
-    $pdo = moirai_db();
-    $stmt = $pdo->prepare(
-        'INSERT INTO device_notes (device_type, device_key, author_email, author_naam, body, created_at, updated_at)
-         VALUES (:type, :key, :email, :naam, :body, :created_at, NULL)'
-    );
-    $stmt->execute([
-        'type' => $typeKey,
-        'key' => $deviceKey,
-        'email' => $email,
-        'naam' => moirai_current_user_name(),
-        'body' => $body,
-        'created_at' => $now,
-    ]);
-
-    return moirai_get_device_note((int) $pdo->lastInsertId());
-}
-
-/**
- * @return array<string, mixed>
- */
-function moirai_get_device_note(int $noteId): array
-{
-    if ($noteId < 1) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_not_found'));
-    }
-
-    $pdo = moirai_db();
-    $stmt = $pdo->prepare(
-        'SELECT id, author_email, author_naam, body, created_at, updated_at
-         FROM device_notes
-         WHERE id = :id'
-    );
-    $stmt->execute(['id' => $noteId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!is_array($row)) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_not_found'));
-    }
-
-    return moirai_map_note_for_api($row, moirai_current_user_email(), moirai_is_admin());
-}
-
-/**
- * @return array<string, mixed>
- */
-function moirai_update_device_note(int $noteId, string $body): array
-{
-    $body = trim($body);
-    if ($body === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_empty'));
-    }
-    if (mb_strlen($body) > MOIRAI_NOTE_MAX_LENGTH) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_too_long'));
-    }
-
-    $pdo = moirai_db();
-    $stmt = $pdo->prepare(
-        'SELECT id, author_email, author_naam, body, created_at, updated_at
-         FROM device_notes
-         WHERE id = :id'
-    );
-    $stmt->execute(['id' => $noteId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!is_array($row)) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_not_found'));
-    }
-
-    $viewerEmail = moirai_current_user_email();
-    $viewerIsAdmin = moirai_is_admin();
-    $authorEmail = strtolower(trim((string) ($row['author_email'] ?? '')));
-    if (!$viewerIsAdmin && ($viewerEmail === '' || $viewerEmail !== $authorEmail)) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.forbidden'));
-    }
-
-    $now = (new DateTimeImmutable('now'))->format('c');
-    $update = $pdo->prepare(
-        'UPDATE device_notes SET body = :body, updated_at = :updated_at WHERE id = :id'
-    );
-    $update->execute([
-        'body' => $body,
-        'updated_at' => $now,
-        'id' => $noteId,
-    ]);
-
-    return moirai_get_device_note($noteId);
-}
-
-function moirai_delete_device_note(int $noteId): void
-{
-    $pdo = moirai_db();
-    $stmt = $pdo->prepare(
-        'SELECT id, author_email FROM device_notes WHERE id = :id'
-    );
-    $stmt->execute(['id' => $noteId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!is_array($row)) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.note_not_found'));
-    }
-
-    $viewerEmail = moirai_current_user_email();
-    $viewerIsAdmin = moirai_is_admin();
-    $authorEmail = strtolower(trim((string) ($row['author_email'] ?? '')));
-    if (!$viewerIsAdmin && ($viewerEmail === '' || $viewerEmail !== $authorEmail)) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.forbidden'));
-    }
-
-    $delete = $pdo->prepare('DELETE FROM device_notes WHERE id = :id');
-    $delete->execute(['id' => $noteId]);
 }

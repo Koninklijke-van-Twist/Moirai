@@ -19,6 +19,25 @@ try {
                 $devices,
                 static fn(array $device): bool => moirai_device_matches_filter($device, $query, $status, $attrs)
             ));
+            moirai_ensure_kvt_chat();
+            $typeKey = moirai_type_key($type) ?? 'laptops';
+            $keyField = moirai_device_key_field($typeKey);
+            $threadKeys = [];
+            foreach ($devices as $device) {
+                $deviceKey = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));
+                if ($deviceKey !== '') {
+                    $threadKeys[] = moirai_device_notes_thread_key($typeKey, $deviceKey);
+                }
+            }
+            $lastNotes = KvtChat::lastMapped($threadKeys, false);
+            foreach ($devices as &$device) {
+                $deviceKey = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));
+                $threadKey = $deviceKey !== '' ? moirai_device_notes_thread_key($typeKey, $deviceKey) : '';
+                $device['last_note'] = ($threadKey !== '' && isset($lastNotes[$threadKey]))
+                    ? $lastNotes[$threadKey]
+                    : null;
+            }
+            unset($device);
             moirai_json_response(['ok' => true, 'devices' => $devices]);
             break;
 
@@ -103,49 +122,6 @@ try {
                 (string) ($payload['type'] ?? ''),
                 (string) ($payload['id'] ?? '')
             );
-            moirai_json_response(['ok' => true]);
-            break;
-
-        case 'notes_list':
-            $type = trim((string) ($_GET['type'] ?? ''));
-            $id = trim((string) ($_GET['id'] ?? ''));
-            moirai_json_response([
-                'ok' => true,
-                'messages' => moirai_list_device_notes($type, $id),
-            ]);
-            break;
-
-        case 'notes_add':
-            $payload = json_decode((string) file_get_contents('php://input'), true);
-            if (!is_array($payload)) {
-                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
-            }
-            $message = moirai_add_device_note(
-                (string) ($payload['type'] ?? ''),
-                (string) ($payload['id'] ?? ''),
-                (string) ($payload['message_text'] ?? '')
-            );
-            moirai_json_response(['ok' => true, 'message' => $message]);
-            break;
-
-        case 'notes_edit':
-            $payload = json_decode((string) file_get_contents('php://input'), true);
-            if (!is_array($payload)) {
-                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
-            }
-            $message = moirai_update_device_note(
-                (int) ($payload['note_id'] ?? 0),
-                (string) ($payload['message_text'] ?? '')
-            );
-            moirai_json_response(['ok' => true, 'message' => $message]);
-            break;
-
-        case 'notes_delete':
-            $payload = json_decode((string) file_get_contents('php://input'), true);
-            if (!is_array($payload)) {
-                moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
-            }
-            moirai_delete_device_note((int) ($payload['note_id'] ?? 0));
             moirai_json_response(['ok' => true]);
             break;
 

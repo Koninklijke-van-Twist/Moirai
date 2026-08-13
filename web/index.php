@@ -12,7 +12,7 @@ $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
 $todayIso = date('Y-m-d');
 
 $moiraiJsKeys = [
-    'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.unnamed', 'moirai.filter.all',
+    'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.badge.condition', 'moirai.unnamed', 'moirai.filter.all',
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard', 'moirai.filter.condition',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
@@ -322,6 +322,17 @@ $moiraiJsKeys = [
             font-weight: 700;
         }
 
+        .device-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .device-badges .badge {
+            margin-top: 0;
+        }
+
         .badge-assigned {
             background: var(--kvt-row-ok);
             color: #166534;
@@ -335,6 +346,26 @@ $moiraiJsKeys = [
         .badge-unavailable {
             background: var(--kvt-row-alert);
             color: #9f1239;
+        }
+
+        .badge-condition-uitstekend {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .badge-condition-netjes {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .badge-condition-lichte_slijtage {
+            background: #fef08a;
+            color: #854d0e;
+        }
+
+        .badge-condition-beschadigd {
+            background: #fecaca;
+            color: #b91c1c;
         }
 
         .empty-state {
@@ -1051,6 +1082,9 @@ $moiraiJsKeys = [
                 badgeClass = 'badge-unavailable';
                 badgeText = t('moirai.badge.unavailable');
             }
+            var conditionKey = String(device.fysieke_staat || conditionDefault || 'uitstekend').trim() || 'uitstekend';
+            var conditionBadgeClass = 'badge-condition-' + conditionKey;
+            var conditionBadgeText = t('moirai.badge.condition', t('moirai.condition.' + conditionKey));
             var key = device[keyField(state.tab)] || device.id;
             var qrIcon = device.qr_geldig
                 ? '<span class="device-qr-icon" aria-hidden="true"><img src="icons/qr-verified.svg" alt=""></span>'
@@ -1060,7 +1094,10 @@ $moiraiJsKeys = [
                 '<div class="device-item-main">' +
                 '<p class="device-name">' + qrIcon + '<span>' + escapeHtml(deviceTitle(device)) + '</span></p>' +
                 '<p class="device-meta">' + escapeHtml(deviceSubtitle(device, state.tab)) + '</p>' +
+                '<div class="device-badges">' +
                 '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
+                '<span class="badge ' + escapeHtml(conditionBadgeClass) + '">' + escapeHtml(conditionBadgeText) + '</span>' +
+                '</div>' +
                 '</div>' +
                 '<div class="device-item-note" data-note-slot="' + escapeHtml(key) + '"></div>' +
                 renderMissingFieldsBlock(device, state.tab) +

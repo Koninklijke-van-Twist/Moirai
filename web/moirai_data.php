@@ -16,6 +16,7 @@ const MOIRAI_LAPTOP_FIELDS = [
     'os',
     'os_versie',
     'toetsenbord',
+    'fysieke_staat',
 ];
 
 const MOIRAI_PHONE_FIELDS = [
@@ -26,6 +27,16 @@ const MOIRAI_PHONE_FIELDS = [
     'os',
     'os_versie',
     'aanschafdatum',
+    'fysieke_staat',
+];
+
+const MOIRAI_CONDITION_DEFAULT = 'uitstekend';
+
+const MOIRAI_CONDITION_OPTIONS = [
+    'uitstekend',
+    'netjes',
+    'lichte_slijtage',
+    'beschadigd',
 ];
 
 const MOIRAI_LAPTOP_OS_OPTIONS = [
@@ -72,6 +83,7 @@ const MOIRAI_LAPTOP_FILTER_FIELDS = [
     'ram',
     'opslag',
     'toetsenbord',
+    'fysieke_staat',
 ];
 
 const MOIRAI_PHONE_FILTER_FIELDS = [
@@ -80,6 +92,7 @@ const MOIRAI_PHONE_FILTER_FIELDS = [
     'model',
     'schermformaat',
     'opslag',
+    'fysieke_staat',
 ];
 
 function moirai_is_admin(): bool
@@ -255,11 +268,61 @@ function moirai_normalize_filter_options(string $typeKey, array $options): array
         $options['toetsenbord'] = moirai_sort_filter_values(array_values(array_unique($normalized)));
     }
 
+    if (isset($options['fysieke_staat'])) {
+        $options['fysieke_staat'] = MOIRAI_CONDITION_OPTIONS;
+    }
+
     return $options;
+}
+
+function moirai_normalize_condition(string $value): string
+{
+    $value = strtolower(trim($value));
+    if ($value === '') {
+        return MOIRAI_CONDITION_DEFAULT;
+    }
+
+    $aliases = [
+        'uitstekend' => 'uitstekend',
+        'excellent' => 'uitstekend',
+        'as new' => 'uitstekend',
+        'als nieuw' => 'uitstekend',
+        'netjes' => 'netjes',
+        'neat' => 'netjes',
+        'lichte_slijtage' => 'lichte_slijtage',
+        'lichte slijtage' => 'lichte_slijtage',
+        'light_wear' => 'lichte_slijtage',
+        'light wear' => 'lichte_slijtage',
+        'beschadigd' => 'beschadigd',
+        'damaged' => 'beschadigd',
+    ];
+
+    if (isset($aliases[$value])) {
+        return $aliases[$value];
+    }
+
+    foreach (MOIRAI_CONDITION_OPTIONS as $option) {
+        if (strcasecmp($value, $option) === 0) {
+            return $option;
+        }
+    }
+
+    throw new InvalidArgumentException(moirai_loc('moirai.error.condition_invalid'));
+}
+
+function moirai_normalize_condition_display(string $value): string
+{
+    try {
+        return moirai_normalize_condition($value);
+    } catch (InvalidArgumentException) {
+        return MOIRAI_CONDITION_DEFAULT;
+    }
 }
 
 function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool $isNew): void
 {
+    $sanitized['fysieke_staat'] = moirai_normalize_condition((string) ($sanitized['fysieke_staat'] ?? ''));
+
     if ($typeKey === 'laptops') {
         $sanitized['ram'] = moirai_validate_ram($sanitized['ram']);
         $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
@@ -427,6 +490,16 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'phones', 'opslag', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'laptops', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
     moirai_ensure_column($pdo, 'phones', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
+    moirai_ensure_column($pdo, 'laptops', 'fysieke_staat', "TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "'");
+    moirai_ensure_column($pdo, 'phones', 'fysieke_staat', "TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "'");
+    $pdo->exec(
+        "UPDATE laptops SET fysieke_staat = '" . MOIRAI_CONDITION_DEFAULT . "'
+         WHERE trim(fysieke_staat) = ''"
+    );
+    $pdo->exec(
+        "UPDATE phones SET fysieke_staat = '" . MOIRAI_CONDITION_DEFAULT . "'
+         WHERE trim(fysieke_staat) = ''"
+    );
     moirai_migrate_laptop_os_column($pdo);
     moirai_migrate_legacy_device_values($pdo);
 }
@@ -970,6 +1043,8 @@ function moirai_row_to_device(array $row, string $typeKey): array
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
     }
 
+    $device['fysieke_staat'] = moirai_normalize_condition_display((string) ($row['fysieke_staat'] ?? ''));
+
     return moirai_public_device($device);
 }
 
@@ -1171,6 +1246,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'os' => $sanitized['os'],
             'os_versie' => $sanitized['os_versie'],
             'toetsenbord' => $sanitized['toetsenbord'],
+            'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
     } else {
         $params = [
@@ -1182,6 +1258,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'os' => $sanitized['os'],
             'os_versie' => $sanitized['os_versie'],
             'aanschafdatum' => $sanitized['aanschafdatum'],
+            'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
     }
 
@@ -1354,6 +1431,10 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             $deviceValue = moirai_normalize_laptop_keyboard_display($deviceValue);
             $value = moirai_normalize_laptop_keyboard_display($value);
         }
+        if ($field === 'fysieke_staat') {
+            $deviceValue = moirai_normalize_condition_display($deviceValue);
+            $value = moirai_normalize_condition_display($value);
+        }
         if (strcasecmp($deviceValue, $value) !== 0) {
             return false;
         }
@@ -1373,6 +1454,7 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             (string) ($device['os_versie'] ?? ''),
             (string) ($device['toetsenbord'] ?? ''),
             (string) ($device['schermformaat'] ?? ''),
+            (string) ($device['fysieke_staat'] ?? ''),
             (string) ($device['aanschafdatum'] ?? ''),
             (string) ($device['uitgegeven_aan']['naam'] ?? ''),
             (string) ($device['uitgegeven_aan']['email'] ?? ''),

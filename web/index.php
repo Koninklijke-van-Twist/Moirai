@@ -13,12 +13,14 @@ $todayIso = date('Y-m-d');
 
 $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.unnamed', 'moirai.filter.all',
-    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard',
+    'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard', 'moirai.filter.condition',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
-    'moirai.field.screen', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve', 'moirai.select.unavailable',
+    'moirai.field.screen', 'moirai.field.condition', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve', 'moirai.select.unavailable',
+    'moirai.condition.uitstekend', 'moirai.condition.netjes', 'moirai.condition.lichte_slijtage', 'moirai.condition.beschadigd',
+    'moirai.condition.phrase.uitstekend', 'moirai.condition.phrase.netjes', 'moirai.condition.phrase.lichte_slijtage', 'moirai.condition.phrase.beschadigd',
     'moirai.status.all', 'moirai.status.assigned', 'moirai.status.reserve', 'moirai.status.unavailable',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
@@ -443,6 +445,14 @@ $moiraiJsKeys = [
             gap: 12px;
         }
 
+        .condition-phrase {
+            margin: 0 0 16px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--kvt-text, #0f172a);
+            line-height: 1.35;
+        }
+
         .detail-row dt {
             font-size: 0.8rem;
             color: var(--kvt-muted);
@@ -722,6 +732,14 @@ $moiraiJsKeys = [
     var isAdmin = <?= $isAdmin ? 'true' : 'false' ?>;
     var todayIso = <?= json_encode($todayIso) ?>;
     var laptopKeyboardOptions = <?= json_encode(MOIRAI_LAPTOP_KEYBOARD_OPTIONS, JSON_UNESCAPED_UNICODE) ?>;
+    var conditionOptions = <?= json_encode(array_map(
+        static fn(string $value): array => [
+            'value' => $value,
+            'labelKey' => 'moirai.condition.' . $value,
+        ],
+        MOIRAI_CONDITION_OPTIONS
+    ), JSON_UNESCAPED_UNICODE) ?>;
+    var conditionDefault = <?= json_encode(MOIRAI_CONDITION_DEFAULT) ?>;
     var i18n = <?= localizationJsTranslations($moiraiJsKeys) ?>;
     var state = {
         tab: 'laptop',
@@ -744,14 +762,16 @@ $moiraiJsKeys = [
             { name: 'model', labelKey: 'moirai.filter.model' },
             { name: 'ram', labelKey: 'moirai.filter.ram' },
             { name: 'opslag', labelKey: 'moirai.filter.storage' },
-            { name: 'toetsenbord', labelKey: 'moirai.filter.keyboard' }
+            { name: 'toetsenbord', labelKey: 'moirai.filter.keyboard' },
+            { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ],
         phone: [
             { name: 'os', labelKey: 'moirai.filter.os' },
             { name: 'os_versie', labelKey: 'moirai.filter.os_version' },
             { name: 'model', labelKey: 'moirai.filter.model' },
             { name: 'schermformaat', labelKey: 'moirai.filter.screen' },
-            { name: 'opslag', labelKey: 'moirai.filter.storage' }
+            { name: 'opslag', labelKey: 'moirai.filter.storage' },
+            { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ]
     };
 
@@ -886,11 +906,35 @@ $moiraiJsKeys = [
             html += '<option value="">' + escapeHtml(t('moirai.filter.all')) + '</option>';
             (options[filter.name] || []).forEach(function (value) {
                 var isSelected = selected === value ? ' selected' : '';
-                html += '<option value="' + escapeHtml(value) + '"' + isSelected + '>' + escapeHtml(value) + '</option>';
+                html += '<option value="' + escapeHtml(value) + '"' + isSelected + '>' +
+                    escapeHtml(filterValueLabel(filter.name, value)) + '</option>';
             });
             html += '</select></div>';
             return html;
         }).join('');
+    }
+
+    function filterValueLabel(fieldName, value) {
+        if (fieldName === 'fysieke_staat') {
+            return t('moirai.condition.' + value);
+        }
+        return value;
+    }
+
+    function selectOptionValue(option) {
+        return (option && typeof option === 'object') ? String(option.value || '') : String(option || '');
+    }
+
+    function selectOptionLabel(option) {
+        if (option && typeof option === 'object' && option.labelKey) {
+            return t(option.labelKey);
+        }
+        return selectOptionValue(option);
+    }
+
+    function conditionPhrase(value) {
+        var key = String(value || conditionDefault || 'uitstekend').trim() || 'uitstekend';
+        return t('moirai.condition.phrase.' + key);
     }
 
     function loadFilterOptions() {
@@ -1041,6 +1085,15 @@ $moiraiJsKeys = [
     }
 
     function fieldDefinitions(type) {
+        var conditionField = {
+            name: 'fysieke_staat',
+            labelKey: 'moirai.field.condition',
+            type: 'select',
+            options: conditionOptions,
+            defaultNew: conditionDefault,
+            viewAsPhrase: true
+        };
+
         if (type === 'laptop') {
             return [
                 { name: 'model', labelKey: 'moirai.field.model', required: true },
@@ -1051,7 +1104,8 @@ $moiraiJsKeys = [
                 { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
                 { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Windows', 'OSX', 'Linux'] },
                 { name: 'os_versie', labelKey: 'moirai.field.os_version' },
-                { name: 'toetsenbord', labelKey: 'moirai.field.keyboard', type: 'select', options: laptopKeyboardOptions, defaultNew: 'QWERTY (US)' }
+                { name: 'toetsenbord', labelKey: 'moirai.field.keyboard', type: 'select', options: laptopKeyboardOptions, defaultNew: 'QWERTY (US)' },
+                conditionField
             ];
         }
 
@@ -1062,7 +1116,8 @@ $moiraiJsKeys = [
             { name: 'opslag', labelKey: 'moirai.field.storage' },
             { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iOS'] },
             { name: 'os_versie', labelKey: 'moirai.field.os_version' },
-            { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' }
+            { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
+            conditionField
         ];
     }
 
@@ -1190,8 +1245,12 @@ $moiraiJsKeys = [
 
     function renderDetails(device) {
         var fields = fieldDefinitions(state.tab);
-        var html = '<dl class="detail-grid">';
+        var html = '<p class="condition-phrase">' + escapeHtml(conditionPhrase(device.fysieke_staat)) + '</p>';
+        html += '<dl class="detail-grid">';
         fields.forEach(function (field) {
+            if (field.viewAsPhrase) {
+                return;
+            }
             html += '<div class="detail-row"><dt>' + escapeHtml(t(field.labelKey)) + '</dt><dd>' +
                 escapeHtml(device[field.name] || '—') + '</dd></div>';
         });
@@ -1389,9 +1448,10 @@ $moiraiJsKeys = [
                     (field.required ? ' required' : '') + '>';
                 html += '<option value="">' + escapeHtml(t('moirai.select.choose')) + '</option>';
                 (field.options || []).forEach(function (option) {
-                    var selected = value === option ? ' selected' : '';
-                    html += '<option value="' + escapeHtml(option) + '"' + selected + '>' +
-                        escapeHtml(option) + '</option>';
+                    var optionValue = selectOptionValue(option);
+                    var selected = value === optionValue ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(optionValue) + '"' + selected + '>' +
+                        escapeHtml(selectOptionLabel(option)) + '</option>';
                 });
                 html += '</select>';
             } else {

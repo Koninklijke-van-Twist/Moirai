@@ -14,8 +14,7 @@ if (!KvtChat::isConfigured()) {
     KvtChat::configure([
         'pdo' => moirai_db(),
         'avatar_dir' => __DIR__ . '/data/user_avatars',
-        'avatar_url' => 'lib/kvt-chat/avatar.php',
-        'api_url' => 'lib/kvt-chat/api.php',
+        // Leave api_url/avatar_url empty so KvtChat builds root-absolute /moirai/lib/... paths.
         'viewer' => static fn(): array => [
             'email' => moirai_current_user_email(),
             'name' => moirai_current_user_name(),

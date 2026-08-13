@@ -307,9 +307,9 @@
             loadInFlight = false;
             showFeedback('');
             setMessages(data.messages || []);
-        }).catch(function () {
+        }).catch(function (error) {
             loadInFlight = false;
-            showFeedback(t('load_failed'), true);
+            showFeedback((error && error.message) ? error.message : t('load_failed'), true);
         });
     }
 

@@ -1304,8 +1304,6 @@ function moirai_ensure_kvt_chat(): void
     KvtChat::configure([
         'pdo' => moirai_db(),
         'avatar_dir' => __DIR__ . '/data/user_avatars',
-        'avatar_url' => 'lib/kvt-chat/avatar.php',
-        'api_url' => 'lib/kvt-chat/api.php',
         'migrate_device_notes' => true,
         'viewer' => static fn(): array => [
             'email' => moirai_current_user_email(),

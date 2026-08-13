@@ -30,6 +30,8 @@ KvtChat::configure([
 ]);
 ```
 
+Leave `api_url` / `avatar_url` empty (or omit them) to auto-build root-absolute paths like `/moirai/lib/kvt-chat/api.php`. That avoids broken relative URLs when the page is `/moirai` without a trailing slash.
+
 `api.php` and `avatar.php` load this boot file automatically.
 
 ### 2. Render once on the page
@@ -57,8 +59,9 @@ KvtChat.open({
 | `db_path` | string | — | SQLite file path (or pass `pdo`) |
 | `pdo` | PDO | null | Reuse an existing connection |
 | `avatar_dir` | string | `web/data/user_avatars` | PNG cache directory |
-| `avatar_url` | string | `lib/kvt-chat/avatar.php` | Avatar endpoint URL |
-| `api_url` | string | `lib/kvt-chat/api.php` | Chat API URL |
+| `avatar_url` | string | auto `/…/lib/kvt-chat/avatar.php` | Avatar endpoint (root-absolute) |
+| `api_url` | string | auto `/…/lib/kvt-chat/api.php` | Chat API (root-absolute) |
+| `base_path` | string | auto from `SCRIPT_NAME` | App base, e.g. `/moirai` |
 | `viewer` | callable/array | — | `{ email, name }` |
 | `require_auth` | callable | no-op | Runs before API/avatar |
 | `is_admin` | callable | false | Admin flag for `own` + bypass |

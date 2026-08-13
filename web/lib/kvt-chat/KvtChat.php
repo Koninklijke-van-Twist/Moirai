@@ -28,8 +28,10 @@ final class KvtChat
             'db_path' => '',
             'pdo' => null,
             'avatar_dir' => '',
-            'avatar_url' => 'lib/kvt-chat/avatar.php',
-            'api_url' => 'lib/kvt-chat/api.php',
+            // Empty = auto absolute path from app root (avoids /moirai vs /moirai/ relative bugs).
+            'avatar_url' => '',
+            'api_url' => '',
+            'base_path' => '',
             'viewer' => static fn(): array => ['email' => '', 'name' => ''],
             'require_auth' => static function (): void {},
             'is_admin' => static fn(): bool => false,
@@ -52,8 +54,73 @@ final class KvtChat
         self::$config = array_replace_recursive($defaults, $config);
         self::$config['can_edit'] = self::normalizePermission((string) self::$config['can_edit']);
         self::$config['can_delete'] = self::normalizePermission((string) self::$config['can_delete']);
+
+        if (trim((string) (self::$config['api_url'] ?? '')) === '') {
+            self::$config['api_url'] = self::webUrl('lib/kvt-chat/api.php');
+        } elseif (!self::isAbsoluteUrl((string) self::$config['api_url'])) {
+            self::$config['api_url'] = self::webUrl((string) self::$config['api_url']);
+        }
+
+        if (trim((string) (self::$config['avatar_url'] ?? '')) === '') {
+            self::$config['avatar_url'] = self::webUrl('lib/kvt-chat/avatar.php');
+        } elseif (!self::isAbsoluteUrl((string) self::$config['avatar_url'])) {
+            self::$config['avatar_url'] = self::webUrl((string) self::$config['avatar_url']);
+        }
+
         self::$configured = true;
         self::$store = null;
+    }
+
+    /**
+     * Application URL base path without trailing slash, e.g. "/moirai" or "/Moirai/web".
+     * Root-absolute paths avoid broken relative resolution when the page URL has no trailing slash.
+     */
+    public static function webBasePath(): string
+    {
+        $configured = trim(str_replace('\\', '/', (string) (self::$config['base_path'] ?? '')), '/');
+        if ($configured !== '') {
+            return '/' . $configured;
+        }
+
+        $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+        if ($script === '') {
+            return '';
+        }
+
+        if (preg_match('#^(.*?)/lib/kvt-chat(?:/|$)#', $script, $matches) === 1) {
+            return rtrim($matches[1], '/');
+        }
+
+        $dir = str_replace('\\', '/', dirname($script));
+        if ($dir === '/' || $dir === '.' || $dir === '\\') {
+            return '';
+        }
+
+        return rtrim($dir, '/');
+    }
+
+    /**
+     * Root-absolute URL path under the app, e.g. "/moirai/lib/kvt-chat/api.php".
+     */
+    public static function webUrl(string $relative): string
+    {
+        $relative = ltrim(str_replace('\\', '/', $relative), '/');
+        $base = self::webBasePath();
+
+        return ($base === '' ? '' : $base) . '/' . $relative;
+    }
+
+    private static function isAbsoluteUrl(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+        if (isset($url[0]) && $url[0] === '/') {
+            return true;
+        }
+
+        return (bool) preg_match('#^[a-z][a-z0-9+.-]*:#i', $url);
     }
 
     public static function isConfigured(): bool
@@ -531,8 +598,7 @@ final class KvtChat
 
     private static function assetUrl(string $relative): string
     {
-        // Relative to the package directory as exposed under web/
-        return 'lib/kvt-chat/' . ltrim($relative, '/');
+        return self::webUrl('lib/kvt-chat/' . ltrim($relative, '/'));
     }
 
     /**

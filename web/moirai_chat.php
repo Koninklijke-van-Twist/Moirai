@@ -11,8 +11,6 @@ if (!KvtChat::isConfigured()) {
     KvtChat::configure([
         'db_path' => __DIR__ . '/data/moirai.sqlite',
         'avatar_dir' => __DIR__ . '/data/user_avatars',
-        'avatar_url' => 'lib/kvt-chat/avatar.php',
-        'api_url' => 'lib/kvt-chat/api.php',
     ]);
 }
 

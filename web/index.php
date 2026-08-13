@@ -783,6 +783,10 @@ $moiraiJsKeys = [
             align-items: center;
         }
 
+        .notes-dialog .ponos-compose-toolbar[hidden] {
+            display: none !important;
+        }
+
         .notes-dialog .ponos-message-input {
             width: 100%;
             min-height: 2.75rem;

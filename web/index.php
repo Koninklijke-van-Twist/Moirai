@@ -52,7 +52,7 @@ $moiraiJsKeys = [
         }
 
         .page {
-            max-width: 960px;
+            max-width: 1360px;
             margin: 0 auto;
             padding: 16px 16px 48px;
         }
@@ -228,13 +228,13 @@ $moiraiJsKeys = [
 
         .device-item-main {
             flex: 0 1 34%;
-            min-width: 0;
+            min-width: 30%;
         }
 
         .device-item-note {
             flex: 1 1 0;
-            min-width: 0;
-            max-width: 42%;
+            min-width: 60%;
+            max-width: 70%;
             pointer-events: none;
         }
 

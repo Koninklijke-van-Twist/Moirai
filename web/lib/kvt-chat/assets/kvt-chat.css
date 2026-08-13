@@ -245,7 +245,6 @@
     --kvt-muted: var(--kvt-muted, #475569);
     --kvt-line: var(--kvt-line, #c9d7eb);
     --kvt-danger: var(--kvt-danger, #b42318);
-    min-width: 0;
 }
 
 .kvt-chat-embed .ponos-message {

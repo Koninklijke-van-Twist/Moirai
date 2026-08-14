@@ -153,24 +153,12 @@ function moirai_build_device_pos_document(array $device, string $type): array
 
     $lines = [];
     if ($typeKey === 'laptops') {
-        $lines[] = [moirai_loc('moirai.print.ram'), moirai_print_value($device['ram'] ?? null)];
-        $lines[] = [moirai_loc('moirai.print.storage'), moirai_print_value($device['opslag'] ?? null)];
         $lines[] = [moirai_loc('moirai.print.cpu'), moirai_print_value($device['cpu'] ?? null)];
     } else {
         $lines[] = [moirai_loc('moirai.print.screen'), moirai_print_value($device['schermformaat'] ?? null)];
-        $lines[] = [moirai_loc('moirai.print.storage'), moirai_print_value($device['opslag'] ?? null)];
     }
 
-    $osCombined = trim(implode(' ', array_filter([
-        trim((string) ($device['os'] ?? '')),
-        trim((string) ($device['os_versie'] ?? '')),
-    ])));
     $lines[] = [moirai_loc('moirai.print.purchased'), moirai_format_print_date_value((string) ($device['aanschafdatum'] ?? ''))];
-    $lines[] = [moirai_loc('moirai.print.os'), $osCombined !== '' ? $osCombined : '-'];
-
-    if ($typeKey === 'laptops') {
-        $lines[] = [moirai_loc('moirai.print.keyboard'), moirai_print_value($device['toetsenbord'] ?? null)];
-    }
 
     $body = [];
     $body[] = ':center:';

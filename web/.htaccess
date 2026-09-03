@@ -1,3 +1,3 @@
-<Files "enroll.sh">
+<Files "download-enroll.zip">
     Require all denied
 </Files>

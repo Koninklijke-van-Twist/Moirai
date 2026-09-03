@@ -14,9 +14,11 @@ $todayIso = date('Y-m-d');
 $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.badge.condition', 'moirai.unnamed', 'moirai.filter.all',
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard', 'moirai.filter.condition',
+    'moirai.filter.name', 'moirai.filter.purchase_date',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
+    'moirai.field.naam', 'moirai.field.accessory_id', 'moirai.field.description',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.condition', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve', 'moirai.select.unavailable',
     'moirai.condition.uitstekend', 'moirai.condition.netjes', 'moirai.condition.lichte_slijtage', 'moirai.condition.beschadigd',
@@ -102,19 +104,25 @@ $moiraiJsKeys = [
 
         .tabs {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             margin-bottom: 16px;
         }
 
         .tab {
-            flex: 1;
+            flex: 1 1 0;
+            min-width: 0;
             border: 1px solid var(--kvt-line);
             background: #f8fbff;
             color: var(--kvt-text);
             border-radius: 10px;
-            padding: 12px 14px;
+            padding: 10px 8px;
             font-weight: 700;
+            font-size: 0.9rem;
             cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .tab.is-active {
@@ -178,6 +186,16 @@ $moiraiJsKeys = [
             padding: 10px 12px;
             font: inherit;
             background: #fff;
+        }
+
+        textarea {
+            min-height: 72px;
+            resize: vertical;
+        }
+
+        input[readonly] {
+            background: #f8fafc;
+            color: var(--kvt-muted);
         }
 
         .status-filters {
@@ -675,6 +693,7 @@ $moiraiJsKeys = [
         <div class="tabs" role="tablist" aria-label="<?= moirai_h(LOC('moirai.title')) ?>">
             <button type="button" class="tab is-active" data-tab="laptop" role="tab" aria-selected="true"><?= moirai_h(LOC('moirai.tab.laptops')) ?></button>
             <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.phones')) ?></button>
+            <button type="button" class="tab" data-tab="accessory" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.accessories')) ?></button>
         </div>
 
         <div class="attr-filters" id="attr-filters"></div>
@@ -803,6 +822,11 @@ $moiraiJsKeys = [
             { name: 'schermformaat', labelKey: 'moirai.filter.screen' },
             { name: 'opslag', labelKey: 'moirai.filter.storage' },
             { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
+        ],
+        accessory: [
+            { name: 'naam', labelKey: 'moirai.filter.name' },
+            { name: 'aanschafdatum', labelKey: 'moirai.filter.purchase_date' },
+            { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ]
     };
 
@@ -843,12 +867,57 @@ $moiraiJsKeys = [
         el.setAttribute('aria-hidden', 'true');
     }
 
+    function typeKeyName(type) {
+        if (type === 'laptop') {
+            return 'laptops';
+        }
+        if (type === 'phone') {
+            return 'phones';
+        }
+        return 'accessories';
+    }
+
+    function shortTypeCode(type) {
+        if (type === 'laptop') {
+            return 'l';
+        }
+        if (type === 'phone') {
+            return 'p';
+        }
+        return 'a';
+    }
+
+    function typeFromShortCode(code) {
+        if (code === 'l') {
+            return 'laptop';
+        }
+        if (code === 'p') {
+            return 'phone';
+        }
+        if (code === 'a') {
+            return 'accessory';
+        }
+        return null;
+    }
+
     function keyField(type) {
-        return type === 'laptop' ? 'serienummer' : 'imei';
+        if (type === 'laptop') {
+            return 'serienummer';
+        }
+        if (type === 'phone') {
+            return 'imei';
+        }
+        return 'accessory_id';
     }
 
     function keyLabel(type) {
-        return type === 'laptop' ? 'Serienummer' : 'IMEI';
+        if (type === 'laptop') {
+            return t('moirai.field.serial');
+        }
+        if (type === 'phone') {
+            return t('moirai.field.imei');
+        }
+        return t('moirai.field.accessory_id');
     }
 
     function escapeHtml(value) {
@@ -1005,13 +1074,24 @@ $moiraiJsKeys = [
     }
 
     function deviceTitle(device) {
-        return device.model || device.naam || t('moirai.unnamed');
+        return device.naam || device.model || t('moirai.unnamed');
     }
 
     function deviceSubtitle(device, type) {
+        var key = String(device[keyField(type)] || device.id || '').trim();
+        if (type === 'accessory') {
+            var desc = String(device.beschrijving || '').trim();
+            if (desc.length > 72) {
+                desc = desc.slice(0, 69) + '…';
+            }
+            if (desc && key) {
+                return desc + ' - ' + key;
+            }
+            return desc || key || '—';
+        }
+
         var os = String(device.os || '').trim();
         var osVersion = String(device.os_versie || '').trim();
-        var key = String(device[keyField(type)] || device.id || '').trim();
         var osPart = [os, osVersion].filter(Boolean).join(' ');
 
         if (osPart && key) {
@@ -1023,6 +1103,9 @@ $moiraiJsKeys = [
 
     function missingDeviceFields(device, type) {
         return fieldDefinitions(type).filter(function (field) {
+            if (field.readonly || field.viewAsPhrase) {
+                return false;
+            }
             return String(device[field.name] ?? '').trim() === '';
         });
     }
@@ -1121,7 +1204,8 @@ $moiraiJsKeys = [
         });
     }
 
-    function fieldDefinitions(type) {
+    function fieldDefinitions(type, options) {
+        options = options || {};
         var conditionField = {
             name: 'fysieke_staat',
             labelKey: 'moirai.field.condition',
@@ -1146,22 +1230,40 @@ $moiraiJsKeys = [
             ];
         }
 
-        return [
-            { name: 'model', labelKey: 'moirai.field.model', required: true },
-            { name: 'imei', labelKey: 'moirai.field.imei', required: true, key: true },
-            { name: 'schermformaat', labelKey: 'moirai.field.screen' },
-            { name: 'opslag', labelKey: 'moirai.field.storage' },
-            { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iOS'] },
-            { name: 'os_versie', labelKey: 'moirai.field.os_version' },
+        if (type === 'phone') {
+            return [
+                { name: 'model', labelKey: 'moirai.field.model', required: true },
+                { name: 'imei', labelKey: 'moirai.field.imei', required: true, key: true },
+                { name: 'schermformaat', labelKey: 'moirai.field.screen' },
+                { name: 'opslag', labelKey: 'moirai.field.storage' },
+                { name: 'os', labelKey: 'moirai.field.os', type: 'select', options: ['Android', 'iOS'] },
+                { name: 'os_versie', labelKey: 'moirai.field.os_version' },
+                { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
+                conditionField
+            ];
+        }
+
+        var accessoryFields = [
+            { name: 'naam', labelKey: 'moirai.field.naam', required: true, autocomplete: 'accessory-names' },
+            { name: 'beschrijving', labelKey: 'moirai.field.description', type: 'textarea' },
             { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
             conditionField
         ];
+        if (!options.hideKey) {
+            accessoryFields.splice(1, 0, {
+                name: 'accessory_id',
+                labelKey: 'moirai.field.accessory_id',
+                readonly: true,
+                key: true
+            });
+        }
+        return accessoryFields;
     }
 
     function deviceDeepLink(device, type) {
         var deviceId = String(device[keyField(type)] || device.id || '').trim();
         var url = new URL(window.location.origin + window.location.pathname);
-        url.searchParams.set('t', type === 'laptop' ? 'l' : 'p');
+        url.searchParams.set('t', shortTypeCode(type));
         url.searchParams.set('d', deviceId);
         return url.toString();
     }
@@ -1172,7 +1274,7 @@ $moiraiJsKeys = [
             return;
         }
 
-        var hashMatch = hash.match(/^(l|p)\/(.+)$/);
+        var hashMatch = hash.match(/^(l|p|a)\/(.+)$/);
         if (!hashMatch) {
             return;
         }
@@ -1191,10 +1293,10 @@ $moiraiJsKeys = [
     function parseDeepLinkFromUrl() {
         var hash = window.location.hash.replace(/^#/, '');
         if (hash) {
-            var hashMatch = hash.match(/^(l|p)\/(.+)$/);
+            var hashMatch = hash.match(/^(l|p|a)\/(.+)$/);
             if (hashMatch) {
                 return {
-                    type: hashMatch[1] === 'l' ? 'laptop' : 'phone',
+                    type: typeFromShortCode(hashMatch[1]),
                     deviceId: decodeURIComponent(hashMatch[2])
                 };
             }
@@ -1203,16 +1305,17 @@ $moiraiJsKeys = [
         var params = new URLSearchParams(window.location.search);
         var shortType = params.get('t');
         var shortId = params.get('d');
-        if (shortType && shortId && (shortType === 'l' || shortType === 'p')) {
+        var fromShort = typeFromShortCode(shortType);
+        if (fromShort && shortId) {
             return {
-                type: shortType === 'l' ? 'laptop' : 'phone',
+                type: fromShort,
                 deviceId: shortId
             };
         }
 
         var type = params.get('type');
         var deviceId = params.get('device');
-        if (type && deviceId && (type === 'laptop' || type === 'phone')) {
+        if (type && deviceId && (type === 'laptop' || type === 'phone' || type === 'accessory')) {
             return { type: type, deviceId: deviceId };
         }
 
@@ -1322,12 +1425,11 @@ $moiraiJsKeys = [
         notesBtn.textContent = t('moirai.btn.notes');
         notesBtn.addEventListener('click', function () {
             var id = String(device[keyField(state.tab)] || device.id || '').trim();
-            var typeKey = state.tab === 'laptop' ? 'laptops' : 'phones';
             if (!id || typeof KvtChat === 'undefined' || !KvtChat.open) {
                 return;
             }
             KvtChat.open({
-                threadKey: 'device:' + typeKey + ':' + id,
+                threadKey: 'device:' + typeKeyName(state.tab) + ':' + id,
                 title: t('moirai.notes.title')
             });
         });
@@ -1462,9 +1564,48 @@ $moiraiJsKeys = [
         });
     }
 
+    function bindAccessoryNameSuggestions() {
+        var input = document.getElementById('field-naam');
+        if (!input || state.tab !== 'accessory') {
+            return;
+        }
+
+        fetchJson(apiUrl({ action: 'filters', type: 'accessory' })).then(function (data) {
+            var names = (data.filters && data.filters.naam) ? data.filters.naam : [];
+            var seen = {};
+            var options = [];
+            names.forEach(function (name) {
+                var value = String(name || '').trim();
+                if (value === '' || seen[value.toLowerCase()]) {
+                    return;
+                }
+                seen[value.toLowerCase()] = true;
+                options.push(value);
+            });
+
+            var existing = document.getElementById('accessory-name-suggestions');
+            if (existing) {
+                existing.remove();
+            }
+
+            var datalist = document.createElement('datalist');
+            datalist.id = 'accessory-name-suggestions';
+            options.forEach(function (name) {
+                var option = document.createElement('option');
+                option.value = name;
+                datalist.appendChild(option);
+            });
+            input.setAttribute('list', 'accessory-name-suggestions');
+            input.setAttribute('autocomplete', 'off');
+            input.after(datalist);
+        }).catch(function () {
+            // Autocomplete is optional; the form remains usable.
+        });
+    }
+
     function openEditForm(device, isNew) {
         state.editing = true;
-        var fields = fieldDefinitions(state.tab);
+        var fields = fieldDefinitions(state.tab, { hideKey: !!isNew });
         var html = '<form class="form-grid" id="device-form">';
         html += '<input type="hidden" name="original_key" value="' + escapeHtml(device.id || '') + '">';
 
@@ -1491,9 +1632,14 @@ $moiraiJsKeys = [
                         escapeHtml(selectOptionLabel(option)) + '</option>';
                 });
                 html += '</select>';
+            } else if (field.type === 'textarea') {
+                html += '<textarea id="field-' + field.name + '" name="' + field.name + '" rows="3"' +
+                    (field.required ? ' required' : '') + '>' + escapeHtml(value) + '</textarea>';
             } else {
                 html += '<input type="text" id="field-' + field.name + '" name="' + field.name + '" value="' + escapeHtml(value) + '"' +
-                    (field.required ? ' required' : '') + '>';
+                    (field.required ? ' required' : '') +
+                    (field.readonly ? ' readonly' : '') +
+                    (field.autocomplete ? ' autocomplete="off"' : '') + '>';
             }
             html += '</div>';
         });
@@ -1503,6 +1649,7 @@ $moiraiJsKeys = [
         modalForm.hidden = false;
         modalView.hidden = true;
         modalTitle.textContent = isNew ? t('moirai.modal.new') : t('moirai.modal.edit');
+        bindAccessoryNameSuggestions();
 
         modalActions.innerHTML = '';
         var saveBtn = document.createElement('button');

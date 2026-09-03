@@ -139,12 +139,12 @@ function moirai_build_device_pos_document(array $device, string $type): array
 
     $keyField = moirai_device_key_field($typeKey);
     $id = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));
-    $title = trim((string) ($device['model'] ?? $device['naam'] ?? ''));
+    $title = trim((string) ($device['naam'] ?? $device['model'] ?? ''));
     if ($title === '') {
         $title = moirai_loc('moirai.unnamed');
     }
 
-    $shortType = $typeKey === 'laptops' ? 'l' : 'p';
+    $shortType = moirai_type_short_code($typeKey);
     $qrUrl = moirai_absolute_web_url('index.php') . '?' . http_build_query([
         't' => $shortType,
         'd' => $id,
@@ -154,7 +154,7 @@ function moirai_build_device_pos_document(array $device, string $type): array
     $lines = [];
     if ($typeKey === 'laptops') {
         $lines[] = [moirai_loc('moirai.print.cpu'), moirai_print_value($device['cpu'] ?? null)];
-    } else {
+    } elseif ($typeKey === 'phones') {
         $lines[] = [moirai_loc('moirai.print.screen'), moirai_print_value($device['schermformaat'] ?? null)];
     }
 

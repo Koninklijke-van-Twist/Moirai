@@ -95,6 +95,19 @@ const MOIRAI_PHONE_FILTER_FIELDS = [
     'fysieke_staat',
 ];
 
+const MOIRAI_ACCESSORY_FIELDS = [
+    'naam',
+    'beschrijving',
+    'aanschafdatum',
+    'fysieke_staat',
+];
+
+const MOIRAI_ACCESSORY_FILTER_FIELDS = [
+    'naam',
+    'aanschafdatum',
+    'fysieke_staat',
+];
+
 function moirai_is_admin(): bool
 {
     $email = (string) ($_SESSION['user']['email'] ?? '');
@@ -323,6 +336,11 @@ function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool 
 {
     $sanitized['fysieke_staat'] = moirai_normalize_condition((string) ($sanitized['fysieke_staat'] ?? ''));
 
+    if ($typeKey === 'accessories') {
+        $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'] ?? '', $isNew);
+        return;
+    }
+
     if ($typeKey === 'laptops') {
         $sanitized['ram'] = moirai_validate_ram($sanitized['ram']);
         $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
@@ -410,18 +428,107 @@ function moirai_type_key(string $type): ?string
     return match ($type) {
         'laptop', 'laptops' => 'laptops',
         'phone', 'phones', 'telefoon', 'telefoons' => 'phones',
+        'accessory', 'accessories', 'accessoire', 'accessoires' => 'accessories',
+        default => null,
+    };
+}
+
+function moirai_known_type_keys(): array
+{
+    return ['laptops', 'phones', 'accessories'];
+}
+
+function moirai_public_type(string $typeKey): string
+{
+    return match ($typeKey) {
+        'laptops' => 'laptop',
+        'phones' => 'phone',
+        'accessories' => 'accessory',
+        default => $typeKey,
+    };
+}
+
+function moirai_type_short_code(string $typeKey): string
+{
+    return match ($typeKey) {
+        'laptops' => 'l',
+        'phones' => 'p',
+        'accessories' => 'a',
+        default => '',
+    };
+}
+
+function moirai_type_from_short_code(string $short): ?string
+{
+    return match (strtolower(trim($short))) {
+        'l' => 'laptop',
+        'p' => 'phone',
+        'a' => 'accessory',
         default => null,
     };
 }
 
 function moirai_table_name(string $typeKey): string
 {
-    return $typeKey === 'laptops' ? 'laptops' : 'phones';
+    return match ($typeKey) {
+        'laptops' => 'laptops',
+        'phones' => 'phones',
+        'accessories' => 'accessories',
+        default => throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type')),
+    };
 }
 
 function moirai_device_key_field(string $typeKey): string
 {
-    return $typeKey === 'laptops' ? 'serienummer' : 'imei';
+    return match ($typeKey) {
+        'laptops' => 'serienummer',
+        'phones' => 'imei',
+        'accessories' => 'accessory_id',
+        default => throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type')),
+    };
+}
+
+function moirai_fields_for_type(string $typeKey): array
+{
+    return match ($typeKey) {
+        'laptops' => MOIRAI_LAPTOP_FIELDS,
+        'phones' => MOIRAI_PHONE_FIELDS,
+        'accessories' => MOIRAI_ACCESSORY_FIELDS,
+        default => [],
+    };
+}
+
+function moirai_duplicate_key_message(string $typeKey): string
+{
+    return match ($typeKey) {
+        'laptops' => moirai_loc('moirai.error.serial_duplicate'),
+        'phones' => moirai_loc('moirai.error.imei_duplicate'),
+        default => moirai_loc('moirai.error.save_failed'),
+    };
+}
+
+function moirai_format_accessory_id(int $n): string
+{
+    return 'kvt-acc-' . str_pad((string) $n, 6, '0', STR_PAD_LEFT);
+}
+
+function moirai_next_accessory_id(PDO $pdo): string
+{
+    $max = 0;
+    foreach ($pdo->query('SELECT n FROM accessory_id_seq') as $row) {
+        $max = max($max, (int) ($row['n'] ?? 0));
+    }
+    foreach ($pdo->query('SELECT accessory_id FROM accessories') as $row) {
+        if (preg_match('/^kvt-acc-(\d+)$/', (string) ($row['accessory_id'] ?? ''), $matches)) {
+            $max = max($max, (int) $matches[1]);
+        }
+    }
+
+    $n = $max + 1;
+    $stmt = $pdo->prepare('INSERT INTO accessory_id_seq (n) VALUES (:n)');
+    $stmt->execute(['n' => $n]);
+
+    return moirai_format_accessory_id($n);
 }
 
 function moirai_db(): PDO
@@ -500,6 +607,28 @@ function moirai_init_schema(PDO $pdo): void
         "UPDATE phones SET fysieke_staat = '" . MOIRAI_CONDITION_DEFAULT . "'
          WHERE trim(fysieke_staat) = ''"
     );
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS accessories (
+            accessory_id        TEXT PRIMARY KEY,
+            naam                TEXT NOT NULL,
+            beschrijving        TEXT NOT NULL DEFAULT '',
+            aanschafdatum       TEXT NOT NULL DEFAULT '',
+            fysieke_staat       TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "',
+            uitgegeven_user_id  TEXT,
+            uitgegeven_naam     TEXT,
+            uitgegeven_email    TEXT,
+            uitgegeven_sinds    TEXT,
+            historie_json       TEXT NOT NULL DEFAULT '[]',
+            qr_geldig           INTEGER NOT NULL DEFAULT 0
+        )
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS accessory_id_seq (
+            n INTEGER PRIMARY KEY AUTOINCREMENT
+        )
+    ");
+
     moirai_migrate_laptop_os_column($pdo);
     moirai_migrate_legacy_device_values($pdo);
 }
@@ -674,17 +803,22 @@ function moirai_normalize_laptop_keyboard_display(string $value): string
 
 function moirai_filter_fields_for_type(string $typeKey): array
 {
-    return $typeKey === 'laptops' ? MOIRAI_LAPTOP_FILTER_FIELDS : MOIRAI_PHONE_FILTER_FIELDS;
+    return match ($typeKey) {
+        'laptops' => MOIRAI_LAPTOP_FILTER_FIELDS,
+        'phones' => MOIRAI_PHONE_FILTER_FIELDS,
+        'accessories' => MOIRAI_ACCESSORY_FILTER_FIELDS,
+        default => [],
+    };
 }
 
 function moirai_empty_filter_cache(): array
 {
-    $cache = ['laptops' => [], 'phones' => []];
-    foreach (MOIRAI_LAPTOP_FILTER_FIELDS as $field) {
-        $cache['laptops'][$field] = [];
-    }
-    foreach (MOIRAI_PHONE_FILTER_FIELDS as $field) {
-        $cache['phones'][$field] = [];
+    $cache = [];
+    foreach (moirai_known_type_keys() as $typeKey) {
+        $cache[$typeKey] = [];
+        foreach (moirai_filter_fields_for_type($typeKey) as $field) {
+            $cache[$typeKey][$field] = [];
+        }
     }
 
     return $cache;
@@ -707,7 +841,7 @@ function moirai_read_filter_cache(): array
     }
 
     $cache = moirai_empty_filter_cache();
-    foreach (['laptops', 'phones'] as $typeKey) {
+    foreach (moirai_known_type_keys() as $typeKey) {
         $fields = moirai_filter_fields_for_type($typeKey);
         foreach ($fields as $field) {
             $values = $data[$typeKey][$field] ?? [];
@@ -754,8 +888,8 @@ function moirai_rebuild_filter_cache(): array
 {
     $cache = moirai_empty_filter_cache();
 
-    foreach (['laptops', 'phones'] as $typeKey) {
-        $type = $typeKey === 'laptops' ? 'laptop' : 'phone';
+    foreach (moirai_known_type_keys() as $typeKey) {
+        $type = moirai_public_type($typeKey);
         foreach (moirai_list_devices($type) as $device) {
             foreach (moirai_filter_fields_for_type($typeKey) as $field) {
                 $value = trim((string) ($device[$field] ?? ''));
@@ -1020,8 +1154,7 @@ function moirai_row_to_device(array $row, string $typeKey): array
     $device = [
         'id' => (string) ($row[$keyField] ?? ''),
         $keyField => (string) ($row[$keyField] ?? ''),
-        'naam' => $model,
-        'model' => $model,
+        'naam' => $typeKey === 'accessories' ? $naam : $model,
         'aanschafdatum' => (string) ($row['aanschafdatum'] ?? ''),
         'uitgegeven_aan' => $uitgegeven,
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
@@ -1030,17 +1163,22 @@ function moirai_row_to_device(array $row, string $typeKey): array
     ];
 
     if ($typeKey === 'laptops') {
+        $device['model'] = $model;
         $device['ram'] = (string) ($row['ram'] ?? '');
         $device['opslag'] = (string) ($row['opslag'] ?? '');
         $device['cpu'] = (string) ($row['cpu'] ?? '');
         $device['os'] = (string) ($row['os'] ?? $row['besturingssysteem'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
         $device['toetsenbord'] = moirai_normalize_laptop_keyboard_display((string) ($row['toetsenbord'] ?? ''));
-    } else {
+    } elseif ($typeKey === 'phones') {
+        $device['model'] = $model;
+        $device['naam'] = $model;
         $device['schermformaat'] = moirai_normalize_schermformaat_display((string) ($row['schermformaat'] ?? ''));
         $device['opslag'] = (string) ($row['opslag'] ?? '');
         $device['os'] = (string) ($row['os'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
+    } else {
+        $device['beschrijving'] = (string) ($row['beschrijving'] ?? '');
     }
 
     $device['fysieke_staat'] = moirai_normalize_condition_display((string) ($row['fysieke_staat'] ?? ''));
@@ -1090,7 +1228,10 @@ function moirai_list_devices(string $type): array
 
     $table = moirai_table_name($typeKey);
     $pdo = moirai_db();
-    $rows = $pdo->query("SELECT * FROM {$table} ORDER BY model COLLATE NOCASE ASC, naam COLLATE NOCASE ASC")->fetchAll();
+    $orderBy = $typeKey === 'accessories'
+        ? 'naam COLLATE NOCASE ASC, accessory_id COLLATE NOCASE ASC'
+        : 'model COLLATE NOCASE ASC, naam COLLATE NOCASE ASC';
+    $rows = $pdo->query("SELECT * FROM {$table} ORDER BY {$orderBy}")->fetchAll();
     $devices = [];
 
     foreach ($rows as $row) {
@@ -1182,25 +1323,32 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
         throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
     }
 
-    $fields = $typeKey === 'laptops' ? MOIRAI_LAPTOP_FIELDS : MOIRAI_PHONE_FIELDS;
+    $fields = moirai_fields_for_type($typeKey);
     $sanitized = moirai_sanitize_text_fields($input, $fields);
     $keyField = moirai_device_key_field($typeKey);
-    $keyValue = $sanitized[$keyField];
-
-    if ($sanitized['model'] === '') {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.model_required'));
-    }
-    $sanitized['naam'] = $sanitized['model'];
-    if ($keyValue === '') {
-        throw new InvalidArgumentException(
-            $typeKey === 'laptops'
-                ? moirai_loc('moirai.error.serial_required')
-                : moirai_loc('moirai.error.imei_required')
-        );
-    }
-
     $originalKey = trim((string) ($input['original_key'] ?? $input['id'] ?? ''));
     $isNew = $originalKey === '';
+
+    if ($typeKey === 'accessories') {
+        if (trim((string) ($sanitized['naam'] ?? '')) === '') {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.name_required'));
+        }
+        $keyValue = $isNew ? '' : $originalKey;
+    } else {
+        $keyValue = $sanitized[$keyField];
+        if ($sanitized['model'] === '') {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.model_required'));
+        }
+        $sanitized['naam'] = $sanitized['model'];
+        if ($keyValue === '') {
+            throw new InvalidArgumentException(
+                $typeKey === 'laptops'
+                    ? moirai_loc('moirai.error.serial_required')
+                    : moirai_loc('moirai.error.imei_required')
+            );
+        }
+    }
+
     $existing = $isNew
         ? ['historie_uitgegeven' => [], 'uitgegeven_aan' => null, 'uitgegeven_sinds' => null]
         : moirai_get_device($type, $originalKey);
@@ -1234,6 +1382,12 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
     $pdo = moirai_db();
     $table = moirai_table_name($typeKey);
 
+    if ($typeKey === 'accessories' && $isNew) {
+        $keyValue = moirai_next_accessory_id($pdo);
+        $device['id'] = $keyValue;
+        $device['accessory_id'] = $keyValue;
+    }
+
     if ($typeKey === 'laptops') {
         $params = [
             'serienummer' => $keyValue,
@@ -1248,7 +1402,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'toetsenbord' => $sanitized['toetsenbord'],
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
-    } else {
+    } elseif ($typeKey === 'phones') {
         $params = [
             'imei' => $keyValue,
             'naam' => $sanitized['naam'],
@@ -1257,6 +1411,14 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'opslag' => $sanitized['opslag'],
             'os' => $sanitized['os'],
             'os_versie' => $sanitized['os_versie'],
+            'aanschafdatum' => $sanitized['aanschafdatum'],
+            'fysieke_staat' => $sanitized['fysieke_staat'],
+        ] + $assignment;
+    } else {
+        $params = [
+            'accessory_id' => $keyValue,
+            'naam' => $sanitized['naam'],
+            'beschrijving' => $sanitized['beschrijving'],
             'aanschafdatum' => $sanitized['aanschafdatum'],
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
@@ -1272,11 +1434,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             $stmt->execute($params);
         } catch (PDOException $error) {
             if (str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                throw new InvalidArgumentException(
-                    $typeKey === 'laptops'
-                        ? moirai_loc('moirai.error.serial_duplicate')
-                        : moirai_loc('moirai.error.imei_duplicate')
-                );
+                throw new InvalidArgumentException(moirai_duplicate_key_message($typeKey));
             }
             throw $error;
         }
@@ -1301,11 +1459,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
                     throw $error;
                 }
                 if ($error instanceof PDOException && str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                    throw new InvalidArgumentException(
-                        $typeKey === 'laptops'
-                            ? 'Dit serienummer bestaat al.'
-                            : 'Deze IMEI bestaat al.'
-                    );
+                    throw new InvalidArgumentException(moirai_duplicate_key_message($typeKey));
                 }
                 throw $error;
             }
@@ -1447,6 +1601,8 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             (string) ($device['model'] ?? ''),
             (string) ($device['serienummer'] ?? ''),
             (string) ($device['imei'] ?? ''),
+            (string) ($device['accessory_id'] ?? ''),
+            (string) ($device['beschrijving'] ?? ''),
             (string) ($device['ram'] ?? ''),
             (string) ($device['opslag'] ?? ''),
             (string) ($device['cpu'] ?? ''),
@@ -1530,18 +1686,20 @@ function moirai_parse_deep_link_from_request(): ?array
 
         $shortType = trim((string) ($params['t'] ?? ''));
         $shortId = trim((string) ($params['d'] ?? ''));
-        if (($shortType === 'l' || $shortType === 'p') && $shortId !== '') {
+        $fromShort = moirai_type_from_short_code($shortType);
+        if ($fromShort !== null && $shortId !== '') {
             return [
-                'type' => $shortType === 'l' ? 'laptop' : 'phone',
+                'type' => $fromShort,
                 'deviceId' => $shortId,
             ];
         }
 
         $type = trim((string) ($params['type'] ?? ''));
         $deviceId = trim((string) ($params['device'] ?? ''));
-        if (in_array($type, ['laptop', 'phone'], true) && $deviceId !== '') {
+        $typeKey = moirai_type_key($type);
+        if ($typeKey !== null && $deviceId !== '') {
             return [
-                'type' => $type,
+                'type' => moirai_public_type($typeKey),
                 'deviceId' => $deviceId,
             ];
         }
@@ -1557,7 +1715,8 @@ function moirai_build_lost_found_url(?array $link = null): string
         return 'lost_and_found.php';
     }
 
-    $shortType = $link['type'] === 'laptop' ? 'l' : 'p';
+    $typeKey = moirai_type_key($link['type'] ?? '');
+    $shortType = $typeKey !== null ? moirai_type_short_code($typeKey) : 'p';
 
     return 'lost_and_found.php?' . http_build_query([
         't' => $shortType,
@@ -1571,7 +1730,7 @@ function moirai_device_display_name(?array $device): string
         return 'apparaat';
     }
 
-    $name = trim((string) ($device['model'] ?? $device['naam'] ?? ''));
+    $name = trim((string) ($device['naam'] ?? $device['model'] ?? ''));
 
     return $name !== '' ? $name : 'apparaat';
 }

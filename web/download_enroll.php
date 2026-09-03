@@ -9,14 +9,14 @@ if (!moirai_is_admin()) {
     exit('Geen rechten.');
 }
 
-$file = __DIR__ . '/download-enroll.zip';
+$file = __DIR__ . '/init-laptop.zip';
 if (!is_file($file) || !is_readable($file)) {
     http_response_code(404);
     exit('Bestand niet gevonden.');
 }
 
 header('Content-Type: application/octet-stream');
-header('Content-Disposition: attachment; filename="download-enroll.zip"');
+header('Content-Disposition: attachment; filename="init-laptop.zip"');
 header('Content-Length: ' . filesize($file));
 header('Cache-Control: no-cache, no-store, must-revalidate');
 header('Pragma: no-cache');

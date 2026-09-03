@@ -18,7 +18,7 @@ $moiraiJsKeys = [
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
-    'moirai.field.naam', 'moirai.field.accessory_id', 'moirai.field.description',
+    'moirai.field.naam', 'moirai.field.modelnummer', 'moirai.field.accessory_id', 'moirai.field.description',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.condition', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve', 'moirai.select.unavailable',
     'moirai.condition.uitstekend', 'moirai.condition.netjes', 'moirai.condition.lichte_slijtage', 'moirai.condition.beschadigd',
@@ -1245,6 +1245,7 @@ $moiraiJsKeys = [
 
         var accessoryFields = [
             { name: 'naam', labelKey: 'moirai.field.naam', required: true, autocomplete: 'accessory-names' },
+            { name: 'modelnummer', labelKey: 'moirai.field.modelnummer', required: true },
             { name: 'beschrijving', labelKey: 'moirai.field.description', type: 'textarea' },
             { name: 'aanschafdatum', labelKey: 'moirai.field.purchase_date', type: 'date' },
             conditionField

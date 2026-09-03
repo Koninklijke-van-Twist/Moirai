@@ -156,6 +156,8 @@ function moirai_build_device_pos_document(array $device, string $type): array
         $lines[] = [moirai_loc('moirai.print.cpu'), moirai_print_value($device['cpu'] ?? null)];
     } elseif ($typeKey === 'phones') {
         $lines[] = [moirai_loc('moirai.print.screen'), moirai_print_value($device['schermformaat'] ?? null)];
+    } elseif ($typeKey === 'accessories') {
+        $lines[] = [moirai_loc('moirai.print.modelnumber'), moirai_print_value($device['modelnummer'] ?? null)];
     }
 
     $lines[] = [moirai_loc('moirai.print.purchased'), moirai_format_print_date_value((string) ($device['aanschafdatum'] ?? ''))];

@@ -97,6 +97,7 @@ const MOIRAI_PHONE_FILTER_FIELDS = [
 
 const MOIRAI_ACCESSORY_FIELDS = [
     'naam',
+    'modelnummer',
     'beschrijving',
     'aanschafdatum',
     'fysieke_staat',
@@ -612,6 +613,7 @@ function moirai_init_schema(PDO $pdo): void
         CREATE TABLE IF NOT EXISTS accessories (
             accessory_id        TEXT PRIMARY KEY,
             naam                TEXT NOT NULL,
+            modelnummer        TEXT NOT NULL DEFAULT '',
             beschrijving        TEXT NOT NULL DEFAULT '',
             aanschafdatum       TEXT NOT NULL DEFAULT '',
             fysieke_staat       TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "',
@@ -623,6 +625,7 @@ function moirai_init_schema(PDO $pdo): void
             qr_geldig           INTEGER NOT NULL DEFAULT 0
         )
     ");
+    moirai_ensure_column($pdo, 'accessories', 'modelnummer', "TEXT NOT NULL DEFAULT ''");
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS accessory_id_seq (
             n INTEGER PRIMARY KEY AUTOINCREMENT
@@ -1147,6 +1150,7 @@ function moirai_row_to_device(array $row, string $typeKey): array
 
     $model = trim((string) ($row['model'] ?? ''));
     $naam = trim((string) ($row['naam'] ?? ''));
+    $modelnummer = trim((string) ($row['modelnummer'] ?? ''));
     if ($model === '' && $naam !== '') {
         $model = $naam;
     }
@@ -1155,6 +1159,7 @@ function moirai_row_to_device(array $row, string $typeKey): array
         'id' => (string) ($row[$keyField] ?? ''),
         $keyField => (string) ($row[$keyField] ?? ''),
         'naam' => $typeKey === 'accessories' ? $naam : $model,
+        'modelnummer' => $typeKey === 'accessories' ? $modelnummer : '',
         'aanschafdatum' => (string) ($row['aanschafdatum'] ?? ''),
         'uitgegeven_aan' => $uitgegeven,
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
@@ -1333,6 +1338,9 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
         if (trim((string) ($sanitized['naam'] ?? '')) === '') {
             throw new InvalidArgumentException(moirai_loc('moirai.error.name_required'));
         }
+        if (trim((string) ($sanitized['modelnummer'] ?? '')) === '') {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.modelnummer_required'));
+        }
         $keyValue = $isNew ? '' : $originalKey;
     } else {
         $keyValue = $sanitized[$keyField];
@@ -1418,6 +1426,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
         $params = [
             'accessory_id' => $keyValue,
             'naam' => $sanitized['naam'],
+            'modelnummer' => $sanitized['modelnummer'],
             'beschrijving' => $sanitized['beschrijving'],
             'aanschafdatum' => $sanitized['aanschafdatum'],
             'fysieke_staat' => $sanitized['fysieke_staat'],
@@ -1602,6 +1611,7 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             (string) ($device['serienummer'] ?? ''),
             (string) ($device['imei'] ?? ''),
             (string) ($device['accessory_id'] ?? ''),
+            (string) ($device['modelnummer'] ?? ''),
             (string) ($device['beschrijving'] ?? ''),
             (string) ($device['ram'] ?? ''),
             (string) ($device['opslag'] ?? ''),

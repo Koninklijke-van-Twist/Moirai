@@ -27,6 +27,7 @@ $moiraiJsKeys = [
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
     'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
+    'moirai.outdated.label', 'moirai.outdated.warning',
     'moirai.error.print_failed',
     'moirai.notes.title', 'moirai.notes.messages', 'moirai.notes.empty', 'moirai.notes.message_label', 'moirai.notes.edit_label',
     'moirai.notes.load_failed', 'moirai.notes.send_failed', 'moirai.notes.save_failed', 'moirai.notes.delete_failed',
@@ -274,6 +275,21 @@ $moiraiJsKeys = [
             font-weight: 700;
             color: var(--kvt-danger);
             margin-bottom: 3px;
+        }
+
+        .device-outdated-label {
+            display: block;
+            font-weight: 700;
+            color: var(--kvt-danger);
+            margin-bottom: 3px;
+        }
+
+        .condition-outdated-warning {
+            margin: -8px 0 16px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--kvt-danger);
+            line-height: 1.35;
         }
 
         @media (max-width: 540px) {
@@ -1111,22 +1127,28 @@ $moiraiJsKeys = [
     }
 
     function renderMissingFieldsBlock(device, type) {
-        if (!isAdmin) {
+        var outdated = !!device.verouderd;
+        var missingHtml = '';
+        if (isAdmin) {
+            var missing = missingDeviceFields(device, type);
+            if (missing.length) {
+                var labels = missing.map(function (field) {
+                    return escapeHtml(t(field.labelKey));
+                }).join(', ');
+                missingHtml = '<span class="device-missing-label">' + escapeHtml(t('moirai.missing.fields')) + '</span>' +
+                    '<span>' + labels + '</span>';
+            }
+        }
+
+        if (!outdated && !missingHtml) {
             return '';
         }
 
-        var missing = missingDeviceFields(device, type);
-        if (!missing.length) {
-            return '';
-        }
+        var outdatedHtml = outdated
+            ? '<span class="device-outdated-label">' + escapeHtml(t('moirai.outdated.label')) + '</span>'
+            : '';
 
-        var labels = missing.map(function (field) {
-            return escapeHtml(t(field.labelKey));
-        }).join(', ');
-
-        return '<div class="device-missing">' +
-            '<span class="device-missing-label">' + escapeHtml(t('moirai.missing.fields')) + '</span>' +
-            '<span>' + labels + '</span></div>';
+        return '<div class="device-missing">' + outdatedHtml + missingHtml + '</div>';
     }
 
     function deviceStatus(device) {
@@ -1387,6 +1409,9 @@ $moiraiJsKeys = [
     function renderDetails(device) {
         var fields = fieldDefinitions(state.tab);
         var html = '<p class="condition-phrase">' + escapeHtml(conditionPhrase(device.fysieke_staat)) + '</p>';
+        if (device.verouderd) {
+            html += '<p class="condition-outdated-warning">' + escapeHtml(t('moirai.outdated.warning')) + '</p>';
+        }
         html += '<dl class="detail-grid">';
         fields.forEach(function (field) {
             if (field.viewAsPhrase) {

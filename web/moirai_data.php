@@ -5,6 +5,9 @@ require_once __DIR__ . '/lib/kvt-chat/KvtChat.php';
 const MOIRAI_DB_FILE = __DIR__ . '/data/moirai.sqlite';
 const MOIRAI_FILTER_CACHE_FILE = __DIR__ . '/data/filter_cache.json';
 const MOIRAI_UNAVAILABLE_EMAIL = '__unavailable__';
+const MOIRAI_AGING_YEARS = 4;
+const MOIRAI_AGING_MONTHS = 10;
+const MOIRAI_AGING_ALERT_EMAIL = 'ict@kvt.nl';
 
 const MOIRAI_LAPTOP_FIELDS = [
     'model',
@@ -385,13 +388,9 @@ function moirai_persist_device_assignment(string $type, array $device): array
     );
     $stmt->execute($assignment + ['key' => $keyValue]);
 
-    if ($stmt->rowCount() === 0) {
-        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
-    }
-
     $saved = moirai_get_device($type, $keyValue);
     if ($saved === null) {
-        throw new RuntimeException(moirai_loc('moirai.error.save_failed'));
+        throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
     }
 
     return $saved;
@@ -532,22 +531,34 @@ function moirai_next_accessory_id(PDO $pdo): string
     return moirai_format_accessory_id($n);
 }
 
+function moirai_db_file(): string
+{
+    if (!empty($GLOBALS['moirai_db_file']) && is_string($GLOBALS['moirai_db_file'])) {
+        return $GLOBALS['moirai_db_file'];
+    }
+
+    return MOIRAI_DB_FILE;
+}
+
 function moirai_db(): PDO
 {
     static $pdo = null;
+    static $connectedPath = null;
 
-    if ($pdo instanceof PDO) {
+    $path = moirai_db_file();
+    if ($pdo instanceof PDO && $connectedPath === $path) {
         return $pdo;
     }
 
-    $dir = dirname(MOIRAI_DB_FILE);
+    $dir = dirname($path);
     if (!is_dir($dir)) {
         mkdir($dir, 0750, true);
     }
 
-    $pdo = new PDO('sqlite:' . MOIRAI_DB_FILE);
+    $pdo = new PDO('sqlite:' . $path);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $connectedPath = $path;
     moirai_init_schema($pdo);
 
     return $pdo;
@@ -600,6 +611,10 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'phones', 'qr_geldig', 'INTEGER NOT NULL DEFAULT 0');
     moirai_ensure_column($pdo, 'laptops', 'fysieke_staat', "TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "'");
     moirai_ensure_column($pdo, 'phones', 'fysieke_staat', "TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "'");
+    moirai_ensure_column($pdo, 'laptops', 'verouderd', 'INTEGER NOT NULL DEFAULT 0');
+    moirai_ensure_column($pdo, 'phones', 'verouderd', 'INTEGER NOT NULL DEFAULT 0');
+    moirai_ensure_column($pdo, 'laptops', 'verouderd_alert_verzonden', 'INTEGER NOT NULL DEFAULT 0');
+    moirai_ensure_column($pdo, 'phones', 'verouderd_alert_verzonden', 'INTEGER NOT NULL DEFAULT 0');
     $pdo->exec(
         "UPDATE laptops SET fysieke_staat = '" . MOIRAI_CONDITION_DEFAULT . "'
          WHERE trim(fysieke_staat) = ''"
@@ -1165,6 +1180,8 @@ function moirai_row_to_device(array $row, string $typeKey): array
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
         'historie_uitgegeven' => $historie,
         'qr_geldig' => ((int) ($row['qr_geldig'] ?? 0)) === 1,
+        'verouderd' => $typeKey !== 'accessories' && ((int) ($row['verouderd'] ?? 0)) === 1,
+        'verouderd_alert_verzonden' => $typeKey !== 'accessories' && ((int) ($row['verouderd_alert_verzonden'] ?? 0)) === 1,
     ];
 
     if ($typeKey === 'laptops') {
@@ -1431,6 +1448,11 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'aanschafdatum' => $sanitized['aanschafdatum'],
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
+    }
+
+    if (!$isNew && ($typeKey === 'laptops' || $typeKey === 'phones')) {
+        $params['verouderd'] = !empty($existing['verouderd']) ? 1 : 0;
+        $params['verouderd_alert_verzonden'] = !empty($existing['verouderd_alert_verzonden']) ? 1 : 0;
     }
 
     $columns = array_keys($params);
@@ -1758,4 +1780,180 @@ function moirai_current_user_name(): string
     }
 
     return moirai_current_user_email();
+}
+
+function moirai_today(): DateTimeImmutable
+{
+    if (isset($GLOBALS['moirai_today']) && $GLOBALS['moirai_today'] instanceof DateTimeImmutable) {
+        return $GLOBALS['moirai_today'];
+    }
+
+    return new DateTimeImmutable('today');
+}
+
+function moirai_aging_type_keys(): array
+{
+    return ['laptops', 'phones'];
+}
+
+function moirai_device_is_aging(array $device, ?DateTimeImmutable $today = null): bool
+{
+    $purchase = trim((string) ($device['aanschafdatum'] ?? ''));
+    if ($purchase === '') {
+        return false;
+    }
+
+    $purchasedOn = DateTimeImmutable::createFromFormat('Y-m-d', $purchase);
+    $errors = DateTimeImmutable::getLastErrors();
+    if ($purchasedOn === false || ($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0) {
+        return false;
+    }
+
+    $today ??= moirai_today();
+    $threshold = $purchasedOn->setTime(0, 0, 0)->add(new DateInterval(
+        'P' . MOIRAI_AGING_YEARS . 'Y' . MOIRAI_AGING_MONTHS . 'M'
+    ));
+
+    return $threshold->format('Y-m-d') <= $today->format('Y-m-d');
+}
+
+function moirai_update_aging_flags(string $typeKey, string $key, bool $verouderd, bool $alertSent): void
+{
+    $table = moirai_table_name($typeKey);
+    $keyField = moirai_device_key_field($typeKey);
+    $stmt = moirai_db()->prepare(
+        "UPDATE {$table} SET verouderd = :verouderd, verouderd_alert_verzonden = :alert WHERE {$keyField} = :key"
+    );
+    $stmt->execute([
+        'verouderd' => $verouderd ? 1 : 0,
+        'alert' => $alertSent ? 1 : 0,
+        'key' => $key,
+    ]);
+}
+
+function moirai_mark_aging_device_unavailable(string $type, array $device): array
+{
+    $updated = moirai_apply_assignment_history($device, moirai_unavailable_user());
+
+    return moirai_persist_device_assignment($type, $updated);
+}
+
+function moirai_aging_mail_sender(): callable
+{
+    if (isset($GLOBALS['moirai_mail_sender']) && is_callable($GLOBALS['moirai_mail_sender'])) {
+        return $GLOBALS['moirai_mail_sender'];
+    }
+
+    require_once __DIR__ . '/moirai_mail.php';
+
+    return 'moirai_send_aging_alert';
+}
+
+/**
+ * Nightly aging scan: flag laptops/phones aged >= 4 years + 10 months.
+ * Mails ICT once when the device is not Reserve. Reserve devices are marked
+ * Unavailable without mail. Flags are persisted so reruns are idempotent.
+ *
+ * @return array{
+ *   scanned: int,
+ *   flagged: int,
+ *   mailed: int,
+ *   marked_unavailable: int,
+ *   skipped: int,
+ *   mail_failed: int,
+ *   devices: list<array<string, mixed>>
+ * }
+ */
+function moirai_run_aging_alerts(?callable $sendMail = null, ?DateTimeImmutable $today = null): array
+{
+    $today ??= moirai_today();
+    $sendMail ??= moirai_aging_mail_sender();
+
+    $result = [
+        'scanned' => 0,
+        'flagged' => 0,
+        'mailed' => 0,
+        'marked_unavailable' => 0,
+        'skipped' => 0,
+        'mail_failed' => 0,
+        'devices' => [],
+    ];
+
+    foreach (moirai_aging_type_keys() as $typeKey) {
+        $publicType = moirai_public_type($typeKey);
+        $keyField = moirai_device_key_field($typeKey);
+
+        foreach (moirai_list_devices($publicType) as $device) {
+            $result['scanned']++;
+            if (!moirai_device_is_aging($device, $today)) {
+                $result['skipped']++;
+                continue;
+            }
+
+            $key = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));
+            if ($key === '') {
+                $result['skipped']++;
+                continue;
+            }
+
+            $alreadyFlagged = !empty($device['verouderd']);
+            $alreadyAlerted = !empty($device['verouderd_alert_verzonden']);
+            $status = moirai_device_status($device);
+            $entry = [
+                'type' => $publicType,
+                'id' => $key,
+                'model' => (string) ($device['model'] ?? $device['naam'] ?? ''),
+                'status' => $status,
+                'flagged' => $alreadyFlagged,
+                'mailed' => false,
+                'marked_unavailable' => false,
+            ];
+
+            if ($alreadyAlerted && $alreadyFlagged && $status !== 'reserve') {
+                $result['skipped']++;
+                continue;
+            }
+
+            if (!$alreadyFlagged) {
+                moirai_update_aging_flags($typeKey, $key, true, $alreadyAlerted);
+                $device['verouderd'] = true;
+                $entry['flagged'] = true;
+                $result['flagged']++;
+            }
+
+            if ($status === 'reserve') {
+                moirai_mark_aging_device_unavailable($publicType, $device);
+                moirai_update_aging_flags($typeKey, $key, true, true);
+                $entry['marked_unavailable'] = true;
+                $result['marked_unavailable']++;
+                $result['devices'][] = $entry;
+                continue;
+            }
+
+            if ($alreadyAlerted) {
+                $result['skipped']++;
+                continue;
+            }
+
+            try {
+                $mailed = (bool) $sendMail($device, $publicType);
+            } catch (Throwable $error) {
+                error_log('Moirai aging mail failed: ' . $error->getMessage());
+                $mailed = false;
+            }
+
+            if ($mailed) {
+                moirai_update_aging_flags($typeKey, $key, true, true);
+                $entry['mailed'] = true;
+                $result['mailed']++;
+            } else {
+                $result['mail_failed']++;
+                $entry['mail_failed'] = true;
+            }
+
+            $result['devices'][] = $entry;
+        }
+    }
+
+    return $result;
 }

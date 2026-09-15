@@ -1451,8 +1451,15 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
     }
 
     if (!$isNew && ($typeKey === 'laptops' || $typeKey === 'phones')) {
-        $params['verouderd'] = !empty($existing['verouderd']) ? 1 : 0;
-        $params['verouderd_alert_verzonden'] = !empty($existing['verouderd_alert_verzonden']) ? 1 : 0;
+        $dateChanged = trim((string) ($existing['aanschafdatum'] ?? ''))
+            !== trim((string) ($sanitized['aanschafdatum'] ?? ''));
+        if ($dateChanged && !moirai_device_is_aging(['aanschafdatum' => (string) ($sanitized['aanschafdatum'] ?? '')])) {
+            $params['verouderd'] = 0;
+            $params['verouderd_alert_verzonden'] = 0;
+        } else {
+            $params['verouderd'] = !empty($existing['verouderd']) ? 1 : 0;
+            $params['verouderd_alert_verzonden'] = !empty($existing['verouderd_alert_verzonden']) ? 1 : 0;
+        }
     }
 
     $columns = array_keys($params);
@@ -1849,6 +1856,11 @@ function moirai_aging_mail_sender(): callable
     return 'moirai_send_aging_alert';
 }
 
+function moirai_aging_lock_path(): string
+{
+    return dirname(moirai_db_file()) . '/aging_nightly.lock';
+}
+
 /**
  * Nightly aging scan: flag laptops/phones aged >= 4 years + 10 months.
  * Mails ICT once when the device is not Reserve. Reserve devices are marked
@@ -1865,6 +1877,32 @@ function moirai_aging_mail_sender(): callable
  * }
  */
 function moirai_run_aging_alerts(?callable $sendMail = null, ?DateTimeImmutable $today = null): array
+{
+    $lockPath = moirai_aging_lock_path();
+    $lockDir = dirname($lockPath);
+    if (!is_dir($lockDir)) {
+        mkdir($lockDir, 0750, true);
+    }
+
+    $handle = fopen($lockPath, 'c');
+    if ($handle === false) {
+        throw new RuntimeException('Aging-lock kon niet worden geopend.');
+    }
+
+    if (!flock($handle, LOCK_EX)) {
+        fclose($handle);
+        throw new RuntimeException('Aging-lock kon niet worden verkregen.');
+    }
+
+    try {
+        return moirai_run_aging_alerts_locked($sendMail, $today);
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+function moirai_run_aging_alerts_locked(?callable $sendMail = null, ?DateTimeImmutable $today = null): array
 {
     $today ??= moirai_today();
     $sendMail ??= moirai_aging_mail_sender();
@@ -1922,8 +1960,18 @@ function moirai_run_aging_alerts(?callable $sendMail = null, ?DateTimeImmutable 
             }
 
             if ($status === 'reserve') {
-                moirai_mark_aging_device_unavailable($publicType, $device);
-                moirai_update_aging_flags($typeKey, $key, true, true);
+                $pdo = moirai_db();
+                $pdo->beginTransaction();
+                try {
+                    moirai_mark_aging_device_unavailable($publicType, $device);
+                    moirai_update_aging_flags($typeKey, $key, true, true);
+                    $pdo->commit();
+                } catch (Throwable $error) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    throw $error;
+                }
                 $entry['marked_unavailable'] = true;
                 $result['marked_unavailable']++;
                 $result['devices'][] = $entry;

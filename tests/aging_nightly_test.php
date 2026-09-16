@@ -153,7 +153,43 @@ expect(count($mails) === 1, 'retry sends one ICT mail');
 $failDevice = moirai_get_device('laptop', 'MAIL-FAIL');
 expect(!empty($failDevice['verouderd_alert_verzonden']), 'alert flag set after successful retry');
 
+$corrected = moirai_save_device('laptop', [
+    'original_key' => 'OLD-ASSIGNED',
+    'id' => 'OLD-ASSIGNED',
+    'model' => 'ThinkPad OLD-ASSIGNED',
+    'serienummer' => 'OLD-ASSIGNED',
+    'aanschafdatum' => '2025-01-01',
+    'os' => 'Windows',
+    'fysieke_staat' => 'netjes',
+], [], false);
+expect(empty($corrected['verouderd']), 'correcting purchase date to recent clears listing flag');
+expect(empty($corrected['verouderd_alert_verzonden']), 'correcting purchase date to recent clears alert flag');
+
+$mails = [];
+$afterCorrection = moirai_run_aging_alerts();
+expect($afterCorrection['mailed'] === 0, 'recent purchase date does not re-mail');
+$corrected = moirai_get_device('laptop', 'OLD-ASSIGNED');
+expect(empty($corrected['verouderd']), 'recent purchase stays unflagged after nightly');
+
+$reAged = moirai_save_device('laptop', [
+    'original_key' => 'OLD-ASSIGNED',
+    'id' => 'OLD-ASSIGNED',
+    'model' => 'ThinkPad OLD-ASSIGNED',
+    'serienummer' => 'OLD-ASSIGNED',
+    'aanschafdatum' => '2020-01-01',
+    'os' => 'Windows',
+    'fysieke_staat' => 'netjes',
+], [], false);
+expect(empty($reAged['verouderd']), 'flags stay clear until nightly after becoming old again');
+$mails = [];
+$reAgedRun = moirai_run_aging_alerts();
+expect($reAgedRun['mailed'] === 1, 'aging again after date correction sends one new alert');
+$reAged = moirai_get_device('laptop', 'OLD-ASSIGNED');
+expect(!empty($reAged['verouderd']), 'listing flag set again after becoming old');
+expect(!empty($reAged['verouderd_alert_verzonden']), 'alert flag set again after becoming old');
+
 @unlink($tmp);
+@unlink(dirname($tmp) . '/aging_nightly.lock');
 
 if ($failures > 0) {
     echo "\n{$failures} failure(s)\n";

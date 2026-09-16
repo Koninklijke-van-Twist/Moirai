@@ -99,7 +99,12 @@ function moirai_mail_send_smtp(
         return false;
     }
 
-    $remote = ($smtp['encryption'] === 'ssl' ? 'ssl://' : 'tcp://')
+    $encryption = $smtp['encryption'];
+    if ($encryption !== 'ssl' && $encryption !== 'tls') {
+        return false;
+    }
+
+    $remote = ($encryption === 'ssl' ? 'ssl://' : 'tcp://')
         . $smtp['host'] . ':' . $smtp['port'];
     $socket = @stream_socket_client($remote, $errno, $errstr, $smtp['timeout'], STREAM_CLIENT_CONNECT);
     if (!is_resource($socket)) {
@@ -118,7 +123,8 @@ function moirai_mail_send_smtp(
         return false;
     }
 
-    if ($smtp['encryption'] === 'tls') {
+    $tlsActive = $encryption === 'ssl';
+    if ($encryption === 'tls') {
         fwrite($socket, "STARTTLS\r\n");
         if (!moirai_mail_smtp_expect(moirai_mail_smtp_read($socket), [220])) {
             fclose($socket);
@@ -137,9 +143,14 @@ function moirai_mail_send_smtp(
             fclose($socket);
             return false;
         }
+        $tlsActive = true;
     }
 
     if ($smtp['username'] !== '' && $smtp['password'] !== '') {
+        if (!$tlsActive) {
+            fclose($socket);
+            return false;
+        }
         fwrite($socket, "AUTH LOGIN\r\n");
         if (!moirai_mail_smtp_expect(moirai_mail_smtp_read($socket), [334])) {
             fclose($socket);

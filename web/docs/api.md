@@ -38,7 +38,7 @@ Do **not** put keys in the querystring. `?api_key=` is ignored and, when it is t
 
 ## Request format
 
-- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos`
+- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos` / `print_label`
 - **POST** — JSON (`Content-Type: application/json`) or form-data. Required for all mutations
 - Action via `action` (query or body)
 - Responses are JSON UTF-8 with `ok` (bool)
@@ -68,8 +68,7 @@ Device id:
 | Delete device | `delete` |
 | QR marked valid after print/scan | `verify_qr` |
 | Directory users (assign modal) | `users` |
-| Print label (`posprint://` URL) | `print_label` |
-| Fetch `.pos` label document | `label_pos` (`get_pos`, `pos`) |
+| Print label / fetch `.pos` + `posprint://` URL | `label_pos` (`get_pos`, `pos`, `print_label`) |
 | Notes list / add / edit / delete | `notes_list`, `notes_add`, `notes_edit`, `notes_delete` |
 | Verouderd badge | **read-only** (`device.verouderd`). Set by nightly aging, not the UI. |
 
@@ -189,17 +188,12 @@ Directory users are required for a real person (same rule as the UI). Convenienc
 { "action": "verify_qr", "type": "laptop", "id": "SN-API-1" }
 ```
 
-```json
-{ "action": "print_label", "type": "laptop", "id": "SN-API-1" }
-```
+One action returns **both** the UI PosFile and the ready-to-open print URL (same helpers as `print_label.php`):
 
-Print returns `{ "ok": true, "url": "posprint://..." }` like the UI.
+- `pos` — JSON from `moirai_build_device_pos_document()`
+- `url` — `posprint://print?v=1&d=…&noconfirm=1…` from `moirai_build_device_posprint_url()`
 
-### `.pos` label data
-
-The UI print button builds a PosFile via `moirai_build_device_pos_document()` (version, metadata, body) and wraps it in a `posprint://` URL. `label_pos` returns that same document so clients can store or print a `.pos` file.
-
-`GET/POST action=label_pos` (aliases `get_pos`, `pos`). Params: `type`, `id`. Optional `download=1` streams the file (`Content-Disposition: attachment`, filename `{id}.pos`).
+`GET/POST action=label_pos` (aliases `get_pos`, `pos`, `print_label`). Params: `type`, `id`. Optional `download=1` streams the `.pos` file (`Content-Disposition: attachment`, filename `{id}.pos`). The JSON body still includes `url` when not downloading.
 
 ```bash
 curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-API-1" \
@@ -219,7 +213,8 @@ curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-
       "codepage": "CP437"
     },
     "body": ":center:\n@image …\n# ThinkBook 14 2-in-1 G6 IPL\n@qr …\n"
-  }
+  },
+  "url": "posprint://print?v=1&d=…&noconfirm=1&referrer=…"
 }
 ```
 

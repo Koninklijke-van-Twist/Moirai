@@ -17,3 +17,7 @@ Via XAMPP: `http://localhost/Elpis/web/index.php`
 Productie: `https://sleutels.kvt.nl/elpis/`
 
 Dev-hulpmiddel voor BC-probes: `php web/bc_probe.php`
+
+## Device API
+
+Machine/JSON API for ICT device actions: `web/api.php` (API keys in local `auth.php`). Spec: `web/docs/api.md` or `GET api.php?action=help`.

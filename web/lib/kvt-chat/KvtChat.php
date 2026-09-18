@@ -412,6 +412,51 @@ final class KvtChat
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public static function editMappedInThread(int $id, string $threadKey, string $body): array
+    {
+        $threadKey = trim($threadKey);
+        $body = trim($body);
+        self::assertBody($body);
+
+        $row = self::store()->getMessageInThread($id, $threadKey);
+        if ($row === null) {
+            throw new InvalidArgumentException(self::i18n('error.not_found'));
+        }
+
+        $viewer = self::viewer();
+        if (!self::mayManage($row, $viewer, 'can_edit')) {
+            throw new InvalidArgumentException(self::i18n('error.forbidden'));
+        }
+
+        $updated = self::store()->updateMessageInThread($id, $threadKey, $body);
+        if ($updated === null) {
+            throw new InvalidArgumentException(self::i18n('error.not_found'));
+        }
+
+        return self::mapMessage($updated, $viewer);
+    }
+
+    public static function deleteMappedInThread(int $id, string $threadKey): void
+    {
+        $threadKey = trim($threadKey);
+        $row = self::store()->getMessageInThread($id, $threadKey);
+        if ($row === null) {
+            throw new InvalidArgumentException(self::i18n('error.not_found'));
+        }
+
+        $viewer = self::viewer();
+        if (!self::mayManage($row, $viewer, 'can_delete')) {
+            throw new InvalidArgumentException(self::i18n('error.forbidden'));
+        }
+
+        if (!self::store()->deleteMessageInThread($id, $threadKey)) {
+            throw new InvalidArgumentException(self::i18n('error.not_found'));
+        }
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param array{email: string, name: string, is_admin: bool} $viewer
      * @return array<string, mixed>

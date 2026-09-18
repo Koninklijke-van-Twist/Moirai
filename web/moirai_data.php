@@ -1588,17 +1588,25 @@ function moirai_delete_device_notes_thread(string $typeKey, string $deviceKey): 
     KvtChat::deleteThread(moirai_device_notes_thread_key($typeKey, $deviceKey));
 }
 
-function moirai_parse_list_filters(string $type): array
+function moirai_parse_list_filters(string $type, ?array $source = null): array
 {
     $typeKey = moirai_type_key($type);
     if ($typeKey === null) {
         return [];
     }
 
+    $source ??= $_GET;
     $fields = moirai_filter_fields_for_type($typeKey);
     $filters = [];
     foreach ($fields as $field) {
-        $value = trim((string) ($_GET[$field] ?? ''));
+        if (!array_key_exists($field, $source) || $source[$field] === null) {
+            continue;
+        }
+        $raw = $source[$field];
+        if (!is_scalar($raw)) {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.invalid_input'));
+        }
+        $value = trim((string) $raw);
         if ($value !== '') {
             $filters[$field] = $value;
         }

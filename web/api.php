@@ -22,12 +22,9 @@ if ($jsonBodyStatus === 'invalid') {
 }
 
 $action = moirai_api_request_string('action');
-if (moirai_api_query_has_api_key()) {
-    moirai_api_json([
-        'ok' => false,
-        'error' => moirai_loc('moirai.error.api_key_query'),
-        'error_code' => 'api_key_query',
-    ], 401);
+$queryKeyRejection = moirai_api_query_key_rejection();
+if ($queryKeyRejection !== null) {
+    moirai_api_json($queryKeyRejection['body'], $queryKeyRejection['status']);
 }
 
 if (in_array($action, MOIRAI_API_PUBLIC_ACTIONS, true)) {

@@ -118,6 +118,27 @@ function moirai_api_query_has_api_key(): bool
 }
 
 /**
+ * Reject every request that puts an API key in the query string.
+ *
+ * @return array{status: int, body: array}|null
+ */
+function moirai_api_query_key_rejection(): ?array
+{
+    if (!moirai_api_query_has_api_key()) {
+        return null;
+    }
+
+    return [
+        'status' => 401,
+        'body' => [
+            'ok' => false,
+            'error' => moirai_loc('moirai.error.api_key_query'),
+            'error_code' => 'api_key_query',
+        ],
+    ];
+}
+
+/**
  * API key from header or POST body only. Querystring keys are ignored.
  */
 function moirai_api_request_api_key(): string

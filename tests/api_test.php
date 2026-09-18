@@ -78,7 +78,7 @@ expect(moirai_api_authenticate() === null, 'wrong key rejected');
 
 $help = moirai_api_help();
 $actionNames = array_map(static fn(array $row): string => $row['name'], $help['actions']);
-foreach (['list', 'get', 'create', 'update', 'save', 'assign', 'set_condition', 'delete', 'verify_qr', 'users', 'print_label'] as $required) {
+foreach (['list', 'get', 'create', 'update', 'save', 'assign', 'set_condition', 'delete', 'verify_qr', 'users', 'print_label', 'label_pos'] as $required) {
     expect(in_array($required, $actionNames, true), 'spec lists ' . $required);
 }
 
@@ -155,6 +155,23 @@ expect($caught, 'invalid assign is rejected');
 
 $got = dispatch_ok('get', [], ['type' => 'laptop', 'id' => 'SN-API-1']);
 expect(($got['body']['device']['id'] ?? '') === 'SN-API-1', 'get returns device');
+
+$pos = dispatch_ok('label_pos', [], ['type' => 'laptop', 'id' => 'SN-API-1']);
+$posDoc = $pos['body']['pos'] ?? [];
+expect(($pos['body']['filename'] ?? '') === 'SN-API-1.pos', 'label_pos filename');
+expect(($posDoc['version'] ?? 0) === 1, 'label_pos version');
+expect(isset($posDoc['metadata']['title']), 'label_pos metadata title');
+expect(is_string($posDoc['body'] ?? null) && str_contains((string) $posDoc['body'], 'ThinkPad API'), 'label_pos body has device name');
+expect(str_contains((string) $posDoc['body'], '@qr '), 'label_pos body has QR');
+$aliasPos = dispatch_ok('get_pos', [], ['type' => 'laptop', 'id' => 'SN-API-1']);
+expect(($aliasPos['body']['pos']['version'] ?? 0) === 1, 'get_pos alias works');
+reset_request();
+$_GET = ['type' => 'laptop', 'id' => 'SN-API-1', 'download' => '1'];
+$_SERVER['REQUEST_METHOD'] = 'GET';
+moirai_api_apply_actor('voorbeeldKey');
+$download = moirai_api_dispatch('label_pos');
+expect(isset($download['download']['content']), 'label_pos download payload');
+expect(str_contains((string) ($download['download']['filename'] ?? ''), '.pos'), 'label_pos download filename');
 
 $qr = dispatch_ok('verify_qr', ['type' => 'laptop', 'id' => 'SN-API-1']);
 expect(!empty($qr['body']['device']['qr_geldig']), 'verify_qr sets qr_geldig');

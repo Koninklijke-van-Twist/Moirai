@@ -38,7 +38,7 @@ Do **not** put keys in the querystring. `?api_key=` is ignored and, when it is t
 
 ## Request format
 
-- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`
+- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos`
 - **POST** — JSON (`Content-Type: application/json`) or form-data. Required for all mutations
 - Action via `action` (query or body)
 - Responses are JSON UTF-8 with `ok` (bool)
@@ -68,7 +68,8 @@ Device id:
 | Delete device | `delete` |
 | QR marked valid after print/scan | `verify_qr` |
 | Directory users (assign modal) | `users` |
-| Print label | `print_label` |
+| Print label (`posprint://` URL) | `print_label` |
+| Fetch `.pos` label document | `label_pos` (`get_pos`, `pos`) |
 | Notes list / add / edit / delete | `notes_list`, `notes_add`, `notes_edit`, `notes_delete` |
 | Verouderd badge | **read-only** (`device.verouderd`). Set by nightly aging, not the UI. |
 
@@ -175,6 +176,34 @@ Directory users are required for a real person (same rule as the UI). Convenienc
 ```
 
 Print returns `{ "ok": true, "url": "posprint://..." }` like the UI.
+
+### `.pos` label data
+
+The UI print button builds a PosFile via `moirai_build_device_pos_document()` (version, metadata, body) and wraps it in a `posprint://` URL. `label_pos` returns that same document so clients can store or print a `.pos` file.
+
+`GET/POST action=label_pos` (aliases `get_pos`, `pos`). Params: `type`, `id`. Optional `download=1` streams the file (`Content-Disposition: attachment`, filename `{id}.pos`).
+
+```bash
+curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-API-1" \
+  -H "X-API-Key: 1234-5678-1234"
+```
+
+```json
+{
+  "ok": true,
+  "filename": "SN-API-1.pos",
+  "pos": {
+    "version": 1,
+    "metadata": {
+      "title": "Moirai: ThinkPad T14",
+      "page_width_mm": 53.0,
+      "chars_per_line": 32,
+      "codepage": "CP437"
+    },
+    "body": ":center:\n@image …\n# ThinkPad T14\n@qr …\n"
+  }
+}
+```
 
 `users` — Graph directory list (`refresh=1` to bypass cache).
 

@@ -52,6 +52,17 @@ moirai_api_apply_actor((string) $auth['label']);
 
 try {
     $result = moirai_api_dispatch($action);
+    $download = is_array($result['download'] ?? null) ? $result['download'] : null;
+    if ($download !== null) {
+        $filename = trim((string) ($download['filename'] ?? 'device.pos'));
+        $filename = preg_replace('/[^A-Za-z0-9._-]+/', '-', $filename) ?: 'device.pos';
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        http_response_code((int) ($result['status'] ?? 200));
+        echo (string) ($download['content'] ?? '');
+        exit;
+    }
     moirai_api_json($result['body'], $result['status']);
 } catch (InvalidArgumentException $error) {
     moirai_api_json(['ok' => false, 'error' => $error->getMessage(), 'error_code' => 'invalid_input'], 400);

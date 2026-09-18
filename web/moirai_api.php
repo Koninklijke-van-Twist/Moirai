@@ -234,7 +234,8 @@ function moirai_api_help(): array
             ['name' => 'delete', 'auth' => true, 'method' => ['POST'], 'ui' => 'Delete device', 'params' => ['type', 'id']],
             ['name' => 'verify_qr', 'auth' => true, 'method' => ['POST'], 'ui' => 'Mark QR verified after print scan', 'params' => ['type', 'id']],
             ['name' => 'users', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Directory users for assign', 'params' => ['refresh']],
-            ['name' => 'print_label', 'auth' => true, 'method' => ['POST'], 'ui' => 'Print device label', 'params' => ['type', 'id']],
+            ['name' => 'print_label', 'auth' => true, 'method' => ['POST'], 'ui' => 'Print device label (posprint:// URL)', 'params' => ['type', 'id']],
+            ['name' => 'label_pos', 'alias' => ['get_pos', 'pos'], 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Fetch .pos label document (same payload as print)', 'params' => ['type', 'id', 'download']],
             ['name' => 'notes_list', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Device notes', 'params' => ['type', 'id']],
             ['name' => 'notes_add', 'auth' => true, 'method' => ['POST'], 'ui' => 'Add device note', 'params' => ['type', 'id', 'message_text|message']],
             ['name' => 'notes_edit', 'auth' => true, 'method' => ['POST'], 'ui' => 'Edit device note', 'params' => ['type', 'id', 'message_id', 'message_text|message']],
@@ -308,6 +309,13 @@ function moirai_api_require_type(): string
     }
 
     return $type;
+}
+
+function moirai_api_pos_filename(string $id): string
+{
+    $safe = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', $id), '.-') ?: 'device';
+
+    return $safe . '.pos';
 }
 
 function moirai_api_require_id(): string
@@ -494,7 +502,7 @@ function moirai_api_merge_device_input(string $type, array $existing, array $inp
 }
 
 /**
- * @return array{status: int, body: array}
+ * @return array{status: int, body: array, download?: array{filename: string, content: string}}
  */
 function moirai_api_dispatch(string $action): array
 {
@@ -694,6 +702,35 @@ function moirai_api_dispatch(string $action): array
             $url = moirai_build_device_posprint_url($device, $type);
 
             return moirai_api_ok(['url' => $url]);
+
+        case 'label_pos':
+        case 'get_pos':
+        case 'pos':
+            require_once __DIR__ . '/moirai_print.php';
+            $type = moirai_api_require_type();
+            $id = moirai_api_require_id();
+            $device = moirai_get_device($type, $id);
+            if ($device === null) {
+                return moirai_api_error('moirai.error.device_not_found', 404);
+            }
+            $pos = moirai_build_device_pos_document($device, $type);
+            $filename = moirai_api_pos_filename($id);
+            $result = moirai_api_ok([
+                'filename' => $filename,
+                'pos' => $pos,
+            ]);
+            if (moirai_api_request_bool('download')) {
+                $json = json_encode($pos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                if ($json === false) {
+                    return moirai_api_error('moirai.error.generic', 500);
+                }
+                $result['download'] = [
+                    'filename' => $filename,
+                    'content' => $json . "\n",
+                ];
+            }
+
+            return $result;
 
         case 'notes_list':
             $type = moirai_api_require_type();

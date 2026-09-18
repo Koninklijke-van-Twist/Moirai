@@ -9,9 +9,9 @@
  */
 
 // Label/name => secret key string. Used by api.php (X-API-Key / Bearer / POST api_key).
-// Placeholder only — replace locally. Do not commit real secrets in auth.php.
+// Placeholder only — replace locally. The example value is ignored by the API on purpose.
 $apiKeys = [
-    "voorbeeldKey" => "1234-5678-1234",
+    "voorbeeldKey" => "REPLACE_WITH_A_RANDOM_API_KEY",
 ];
 
 // Existing app config (keep whatever your local auth.php already has):

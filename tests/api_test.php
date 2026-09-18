@@ -6,6 +6,9 @@
 
 declare(strict_types=1);
 
+const MOIRAI_API_TEST_ONLY_KEY = 'MOIRAI_API_TEST_ONLY_KEY';
+const MOIRAI_API_TEST_ONLY_LABEL = 'testOnlyKey';
+
 $failures = 0;
 function expect(bool $ok, string $message): void
 {
@@ -22,7 +25,7 @@ function expect(bool $ok, string $message): void
 $tmp = sys_get_temp_dir() . '/moirai_api_test_' . bin2hex(random_bytes(4)) . '.sqlite';
 $GLOBALS['moirai_db_file'] = $tmp;
 $GLOBALS['apiKeys'] = [
-    'voorbeeldKey' => '1234-5678-1234',
+    MOIRAI_API_TEST_ONLY_LABEL => MOIRAI_API_TEST_ONLY_KEY,
 ];
 $GLOBALS['moirai_api_directory_users'] = [
     ['Id' => 'u1', 'id' => 'u1', 'Naam' => 'Test User', 'naam' => 'Test User', 'Email' => 'user@kvt.nl', 'email' => 'user@kvt.nl'],
@@ -43,8 +46,8 @@ function dispatch_ok(string $action, array $post = [], array $get = []): array
     reset_request();
     $_GET = $get;
     $_POST = $post;
-    $_SERVER['HTTP_X_API_KEY'] = '1234-5678-1234';
-    moirai_api_apply_actor('voorbeeldKey');
+    $_SERVER['HTTP_X_API_KEY'] = MOIRAI_API_TEST_ONLY_KEY;
+    moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
     $result = moirai_api_dispatch($action);
     expect(($result['body']['ok'] ?? false) === true, $action . ' ok');
     return $result;
@@ -53,33 +56,39 @@ function dispatch_ok(string $action, array $post = [], array $get = []): array
 reset_request();
 expect(moirai_api_request_api_key() === '', 'no key presented');
 
-$_SERVER['HTTP_X_API_KEY'] = '1234-5678-1234';
-expect(moirai_api_request_api_key() === '1234-5678-1234', 'X-API-Key header');
-expect((moirai_api_authenticate()['label'] ?? '') === 'voorbeeldKey', 'X-API-Key authenticates');
+$_SERVER['HTTP_X_API_KEY'] = MOIRAI_API_TEST_ONLY_KEY;
+expect(moirai_api_request_api_key() === MOIRAI_API_TEST_ONLY_KEY, 'X-API-Key header');
+expect((moirai_api_authenticate()['label'] ?? '') === MOIRAI_API_TEST_ONLY_LABEL, 'X-API-Key authenticates');
 
 reset_request();
-$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer 1234-5678-1234';
-expect(moirai_api_request_api_key() === '1234-5678-1234', 'Authorization Bearer');
-expect((moirai_api_authenticate()['label'] ?? '') === 'voorbeeldKey', 'Bearer authenticates');
+$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . MOIRAI_API_TEST_ONLY_KEY;
+expect(moirai_api_request_api_key() === MOIRAI_API_TEST_ONLY_KEY, 'Authorization Bearer');
+expect((moirai_api_authenticate()['label'] ?? '') === MOIRAI_API_TEST_ONLY_LABEL, 'Bearer authenticates');
 
 reset_request();
-$_POST['api_key'] = '1234-5678-1234';
-expect(moirai_api_request_api_key() === '1234-5678-1234', 'POST body api_key');
+$_POST['api_key'] = MOIRAI_API_TEST_ONLY_KEY;
+expect(moirai_api_request_api_key() === MOIRAI_API_TEST_ONLY_KEY, 'POST body api_key');
 
 reset_request();
-$_GET['api_key'] = '1234-5678-1234';
+$_GET['api_key'] = MOIRAI_API_TEST_ONLY_KEY;
 expect(moirai_api_request_api_key() === '', 'querystring api_key is ignored');
 expect(moirai_api_query_has_api_key() === true, 'querystring api_key is detected');
 expect(moirai_api_authenticate() === null, 'querystring-only key does not authenticate');
 
 reset_request();
-$_GET['api_key'] = '1234-5678-1234';
-$_SERVER['HTTP_X_API_KEY'] = '1234-5678-1234';
+$_GET['api_key'] = MOIRAI_API_TEST_ONLY_KEY;
+$_SERVER['HTTP_X_API_KEY'] = MOIRAI_API_TEST_ONLY_KEY;
 expect(moirai_api_query_has_api_key() === true, 'query api_key is still detected when a header key is also present');
 
 reset_request();
 $_SERVER['HTTP_X_API_KEY'] = 'wrong-key';
 expect(moirai_api_authenticate() === null, 'wrong key rejected');
+
+reset_request();
+$GLOBALS['apiKeys']['voorbeeldKey'] = 'REPLACE_WITH_A_RANDOM_API_KEY';
+$_SERVER['HTTP_X_API_KEY'] = 'REPLACE_WITH_A_RANDOM_API_KEY';
+expect(moirai_api_authenticate() === null, 'example placeholder is not a working key');
+unset($GLOBALS['apiKeys']['voorbeeldKey']);
 
 $help = moirai_api_help();
 $actionNames = array_map(static fn(array $row): string => $row['name'], $help['actions']);
@@ -150,7 +159,7 @@ expect(($listed['body']['count'] ?? 0) === 1, 'list filters status + condition')
 
 reset_request();
 $_POST = ['type' => 'laptop', 'os' => ['Windows', 'macOS']];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $filterCaught = false;
 try {
     moirai_api_dispatch('list');
@@ -164,7 +173,7 @@ expect($filterCaught, 'array filter is rejected');
 
 reset_request();
 $_POST = ['type' => 'laptop', 'id' => 'SN-MISSING'];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $assignMissing = false;
 try {
     moirai_api_dispatch('assign');
@@ -178,7 +187,7 @@ expect($assignMissing, 'assign missing device throws');
 
 reset_request();
 $_POST = ['type' => 'laptop', 'id' => 'SN-API-1', 'uitgegeven_email' => 'nobody@kvt.nl'];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $caught = false;
 try {
     moirai_api_dispatch('assign');
@@ -209,7 +218,7 @@ expect(str_starts_with((string) ($printLabel['body']['url'] ?? ''), 'posprint://
 reset_request();
 $_GET = ['type' => 'laptop', 'id' => 'SN-API-1', 'download' => '1'];
 $_SERVER['REQUEST_METHOD'] = 'GET';
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $download = moirai_api_dispatch('label_pos');
 expect(isset($download['download']['content']), 'label_pos download payload');
 expect(str_contains((string) ($download['download']['filename'] ?? ''), '.pos'), 'label_pos download filename');
@@ -241,7 +250,7 @@ $_POST = [
     'message_id' => (string) $noteId,
     'message' => 'cross-device edit',
 ];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $crossEdit = moirai_api_dispatch('notes_edit');
 expect(($crossEdit['status'] ?? 0) === 404, 'cross-device note edit is 404');
 expect(($crossEdit['body']['error_code'] ?? '') === 'note_not_found', 'cross-device note edit error_code');
@@ -260,7 +269,7 @@ $_POST = [
     'id' => 'SN-API-2',
     'message_id' => (string) $noteId,
 ];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $crossDelete = moirai_api_dispatch('notes_delete');
 expect(($crossDelete['status'] ?? 0) === 404, 'cross-device note delete is 404');
 expect(($crossDelete['body']['error_code'] ?? '') === 'note_not_found', 'cross-device note delete error_code');
@@ -280,7 +289,7 @@ $_POST = [
     'id' => 'SN-API-1',
     'message_id' => (string) $noteId,
 ];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $missingNote = moirai_api_dispatch('notes_delete');
 expect(($missingNote['status'] ?? 0) === 404, 'missing note delete is 404');
 expect(($missingNote['body']['error_code'] ?? '') === 'note_not_found', 'missing note delete error_code');
@@ -327,7 +336,7 @@ expect(($gone['status'] ?? 0) === 404, 'get after delete is 404');
 
 reset_request();
 $_POST = ['type' => 'laptop', 'id' => 'SN-API-1'];
-moirai_api_apply_actor('voorbeeldKey');
+moirai_api_apply_actor(MOIRAI_API_TEST_ONLY_LABEL);
 $deleteMissing = false;
 try {
     moirai_api_dispatch('delete');

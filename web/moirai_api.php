@@ -159,7 +159,7 @@ function moirai_api_configured_keys(): array
         }
         $label = trim($label);
         $secret = trim($secret);
-        if ($label === '' || $secret === '') {
+        if ($label === '' || $secret === '' || $secret === 'REPLACE_WITH_A_RANDOM_API_KEY') {
             continue;
         }
         $configured[$label] = $secret;

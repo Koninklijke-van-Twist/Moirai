@@ -14,16 +14,16 @@ Every action except `help` / `spec` needs a valid service key from local `auth.p
 
 ```php
 $apiKeys = [
-    "voorbeeldKey" => "1234-5678-1234",
+    "voorbeeldKey" => "REPLACE_WITH_A_RANDOM_API_KEY",
 ];
 ```
 
-Label/name => secret. A valid key is ICT access. Client-supplied `admin` / `is_admin` / `user_is_admin` flags are ignored.
+Label/name => secret. A valid key is ICT access. Client-supplied `admin` / `is_admin` / `user_is_admin` flags are ignored. Copy `auth.example.php` to `auth.php` and replace the placeholder with a random secret. `REPLACE_WITH_A_RANDOM_API_KEY` is ignored, so copying the example unchanged does not enable the API.
 
 Send the **secret** (not the label) via one of:
 
-- header `X-API-Key: 1234-5678-1234`
-- header `Authorization: Bearer 1234-5678-1234`
+- header `X-API-Key: REPLACE_WITH_A_RANDOM_API_KEY`
+- header `Authorization: Bearer REPLACE_WITH_A_RANDOM_API_KEY`
 - POST JSON/form field `api_key`
 
 Do **not** put keys in the querystring. Any `?api_key=` — including on `help`/`spec`, or together with a header/body key — returns `401` `api_key_query`.
@@ -111,7 +111,7 @@ Laptop **required** by the API: `model`, `serienummer`. In practice ICT still fi
 ```bash
 curl -X POST "https://sleutels.kvt.nl/moirai/api.php?action=create" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: 1234-5678-1234" \
+  -H "X-API-Key: REPLACE_WITH_A_RANDOM_API_KEY" \
   -d '{
     "type": "laptop",
     "model": "ThinkBook 14 2-in-1 G6 IPL",
@@ -146,7 +146,7 @@ Partial updates are merged with the stored device, then saved with the same vali
 ```bash
 curl -X POST "https://sleutels.kvt.nl/moirai/api.php?action=update" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer 1234-5678-1234" \
+  -H "Authorization: Bearer REPLACE_WITH_A_RANDOM_API_KEY" \
   -d "{\"type\":\"laptop\",\"id\":\"SN-API-1\",\"ram\":\"32 GB\",\"fysieke_staat\":\"netjes\"}"
 ```
 
@@ -197,7 +197,7 @@ One action returns **both** the UI PosFile and the ready-to-open print URL (same
 
 ```bash
 curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-API-1" \
-  -H "X-API-Key: 1234-5678-1234"
+  -H "X-API-Key: REPLACE_WITH_A_RANDOM_API_KEY"
 ```
 
 ```json

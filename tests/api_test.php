@@ -81,6 +81,8 @@ $actionNames = array_map(static fn(array $row): string => $row['name'], $help['a
 foreach (['list', 'get', 'create', 'update', 'save', 'assign', 'set_condition', 'delete', 'verify_qr', 'users', 'print_label', 'label_pos'] as $required) {
     expect(in_array($required, $actionNames, true), 'spec lists ' . $required);
 }
+expect(str_contains((string) ($help['practice']['lenovo_model'] ?? ''), 'ThinkBook 14 2-in-1 G6 IPL'), 'spec documents Lenovo model naming');
+expect(str_contains((string) ($help['practice']['laptop_create'] ?? ''), 'ram'), 'spec documents filling optional laptop fields');
 
 $create = dispatch_ok('create', [
     'type' => 'laptop',

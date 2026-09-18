@@ -224,7 +224,7 @@ function moirai_api_help(): array
             ['name' => 'list', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Device list + search + status + attribute filters', 'params' => ['type', 'q', 'status', '...type filters']],
             ['name' => 'filters', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Attribute filter dropdowns', 'params' => ['type', '...active filters']],
             ['name' => 'get', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Device detail modal', 'params' => ['type', 'id']],
-            ['name' => 'create', 'auth' => true, 'method' => ['POST'], 'ui' => 'New device in a category', 'params' => ['type', '...type fields']],
+            ['name' => 'create', 'auth' => true, 'method' => ['POST'], 'ui' => 'New device in a category', 'params' => ['type', '...type fields'], 'practice' => 'Fill laptop ram/opslag/cpu/os/os_versie/toetsenbord/aanschafdatum on create. Lenovo model = marketing name without MTM suffix, e.g. ThinkBook 14 2-in-1 G6 IPL.'],
             ['name' => 'update', 'auth' => true, 'method' => ['POST'], 'ui' => 'Edit device fields (partial allowed)', 'params' => ['type', 'id', '...fields']],
             ['name' => 'save', 'auth' => true, 'method' => ['POST'], 'ui' => 'Same as UI save (create or update)', 'params' => ['type', 'original_key|id', '...fields']],
             ['name' => 'set_condition', 'alias' => ['set_physical_state', 'set_fysieke_staat'], 'auth' => true, 'method' => ['POST'], 'ui' => 'Change fysieke staat', 'params' => ['type', 'id', 'fysieke_staat']],
@@ -254,6 +254,10 @@ function moirai_api_help(): array
         ],
         'statuses' => ['all', 'assigned', 'reserve', 'unavailable'],
         'conditions' => MOIRAI_CONDITION_OPTIONS,
+        'practice' => [
+            'laptop_create' => 'API-required: model, serienummer. Still fill ram, opslag, cpu, os, os_versie, toetsenbord, aanschafdatum, fysieke_staat on create.',
+            'lenovo_model' => 'Marketing name only, no MTM/CTO suffix: ThinkBook 14 2-in-1 G6 IPL — not ThinkBook 14 2-in-1 G6 IPL (22ARCTO1WW).',
+        ],
         'not_settable' => [
             'verouderd' => 'Set by nightly aging, not by the UI or API clients.',
             'verouderd_alert_verzonden' => 'Internal aging-mail flag.',

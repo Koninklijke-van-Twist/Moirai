@@ -105,22 +105,40 @@ Not found → `404` `device_not_found`.
 
 ## Create
 
+Laptop **required** by the API: `model`, `serienummer`. In practice ICT still fills the optional spec fields on create: `ram`, `opslag`, `cpu`, `os`, `os_versie`, `toetsenbord`, `aanschafdatum`, `fysieke_staat`.
+
+**Lenovo model names:** marketing name only, no MTM/CTO suffix. Use `ThinkBook 14 2-in-1 G6 IPL`, not `ThinkBook 14 2-in-1 G6 IPL (22ARCTO1WW)`.
+
 ```bash
 curl -X POST "https://sleutels.kvt.nl/moirai/api.php?action=create" \
   -H "Content-Type: application/json" \
   -H "X-API-Key: 1234-5678-1234" \
-  -d "{\"type\":\"laptop\",\"model\":\"ThinkPad T14\",\"serienummer\":\"SN-API-1\",\"os\":\"Windows\",\"fysieke_staat\":\"uitstekend\"}"
+  -d '{
+    "type": "laptop",
+    "model": "ThinkBook 14 2-in-1 G6 IPL",
+    "serienummer": "SN-EXAMPLE",
+    "ram": "16 GB",
+    "opslag": "512 GB",
+    "cpu": "Intel Core Ultra 5",
+    "aanschafdatum": "2026-09-18",
+    "os": "Windows",
+    "os_versie": "11",
+    "toetsenbord": "QWERTY (US)",
+    "fysieke_staat": "uitstekend"
+  }'
 ```
 
 Laptop fields: `model` (required), `serienummer` (required), `ram`, `opslag`, `cpu`, `aanschafdatum` (`YYYY-MM-DD`), `os`, `os_versie`, `toetsenbord`, `fysieke_staat`.
 
-Phone fields: `model`, `imei`, `schermformaat`, `opslag`, `os`, `os_versie`, `aanschafdatum`, `fysieke_staat`.
+Phone fields: `model`, `imei`, `schermformaat`, `opslag`, `os`, `os_versie`, `aanschafdatum`, `fysieke_staat`. Fill optional phone spec fields on create as well.
 
 Accessory fields: `naam`, `modelnummer`, `beschrijving`, `aanschafdatum`, `fysieke_staat`. Accessory id is generated.
 
 Success → `201` `{ "ok": true, "device": { } }`.
 
 `verouderd`, `qr_geldig`, and admin flags in the body are ignored.
+
+After a key is in local `auth.php`, ICT can smoke-test a real create (e.g. serial `MP2VY6C6`) against production.
 
 ## Update
 
@@ -195,12 +213,12 @@ curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-
   "pos": {
     "version": 1,
     "metadata": {
-      "title": "Moirai: ThinkPad T14",
+      "title": "Moirai: ThinkBook 14 2-in-1 G6 IPL",
       "page_width_mm": 53.0,
       "chars_per_line": 32,
       "codepage": "CP437"
     },
-    "body": ":center:\n@image …\n# ThinkPad T14\n@qr …\n"
+    "body": ":center:\n@image …\n# ThinkBook 14 2-in-1 G6 IPL\n@qr …\n"
   }
 }
 ```

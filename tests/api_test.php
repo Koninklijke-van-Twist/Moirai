@@ -70,15 +70,25 @@ $_POST['api_key'] = MOIRAI_API_TEST_ONLY_KEY;
 expect(moirai_api_request_api_key() === MOIRAI_API_TEST_ONLY_KEY, 'POST body api_key');
 
 reset_request();
-$_GET['api_key'] = MOIRAI_API_TEST_ONLY_KEY;
+$_GET = ['action' => 'help', 'api_key' => MOIRAI_API_TEST_ONLY_KEY];
 expect(moirai_api_request_api_key() === '', 'querystring api_key is ignored');
 expect(moirai_api_query_has_api_key() === true, 'querystring api_key is detected');
 expect(moirai_api_authenticate() === null, 'querystring-only key does not authenticate');
+$helpQueryReject = moirai_api_query_key_rejection();
+expect(($helpQueryReject['status'] ?? 0) === 401, 'querystring api_key rejected on help');
+expect(($helpQueryReject['body']['error_code'] ?? '') === 'api_key_query', 'querystring help error_code');
 
 reset_request();
-$_GET['api_key'] = MOIRAI_API_TEST_ONLY_KEY;
+$_GET = ['action' => 'help', 'api_key' => MOIRAI_API_TEST_ONLY_KEY];
 $_SERVER['HTTP_X_API_KEY'] = MOIRAI_API_TEST_ONLY_KEY;
+$headerAndQueryReject = moirai_api_query_key_rejection();
 expect(moirai_api_query_has_api_key() === true, 'query api_key is still detected when a header key is also present');
+expect(($headerAndQueryReject['status'] ?? 0) === 401, 'querystring api_key rejected even with header');
+expect(($headerAndQueryReject['body']['error_code'] ?? '') === 'api_key_query', 'header+query error_code');
+
+reset_request();
+$_GET = ['action' => 'help'];
+expect(moirai_api_query_key_rejection() === null, 'help without query key is allowed');
 
 reset_request();
 $_SERVER['HTTP_X_API_KEY'] = 'wrong-key';

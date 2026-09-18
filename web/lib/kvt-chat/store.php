@@ -90,6 +90,30 @@ final class KvtChatStore
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function getMessageInThread(int $id, string $threadKey): ?array
+    {
+        $threadKey = trim($threadKey);
+        if ($id < 1 || $threadKey === '') {
+            return null;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at
+             FROM kvt_chat_messages
+             WHERE id = :id AND thread_key = :thread_key'
+        );
+        $stmt->execute([
+            'id' => $id,
+            'thread_key' => $threadKey,
+        ]);
+        $row = $stmt->fetch();
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function addMessage(
@@ -150,6 +174,36 @@ final class KvtChatStore
     {
         $stmt = $this->pdo->prepare('DELETE FROM kvt_chat_messages WHERE id = :id');
         $stmt->execute(['id' => $id]);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function updateMessageInThread(int $id, string $threadKey, string $body): ?array
+    {
+        if ($this->getMessageInThread($id, $threadKey) === null) {
+            return null;
+        }
+
+        return $this->updateMessage($id, $body);
+    }
+
+    public function deleteMessageInThread(int $id, string $threadKey): bool
+    {
+        $threadKey = trim($threadKey);
+        if ($id < 1 || $threadKey === '') {
+            return false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM kvt_chat_messages WHERE id = :id AND thread_key = :thread_key'
+        );
+        $stmt->execute([
+            'id' => $id,
+            'thread_key' => $threadKey,
+        ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     public function deleteThread(string $threadKey): void

@@ -73,6 +73,11 @@ expect(moirai_api_query_has_api_key() === true, 'querystring api_key is detected
 expect(moirai_api_authenticate() === null, 'querystring-only key does not authenticate');
 
 reset_request();
+$_GET['api_key'] = '1234-5678-1234';
+$_SERVER['HTTP_X_API_KEY'] = '1234-5678-1234';
+expect(moirai_api_query_has_api_key() === true, 'query api_key is still detected when a header key is also present');
+
+reset_request();
 $_SERVER['HTTP_X_API_KEY'] = 'wrong-key';
 expect(moirai_api_authenticate() === null, 'wrong key rejected');
 
@@ -144,6 +149,34 @@ $listed = dispatch_ok('list', [], [
 expect(($listed['body']['count'] ?? 0) === 1, 'list filters status + condition');
 
 reset_request();
+$_POST = ['type' => 'laptop', 'os' => ['Windows', 'macOS']];
+moirai_api_apply_actor('voorbeeldKey');
+$filterCaught = false;
+try {
+    moirai_api_dispatch('list');
+} catch (InvalidArgumentException $error) {
+    $filterCaught = true;
+    $mapped = moirai_api_from_invalid_argument($error);
+    expect($mapped['status'] === 400, 'array filter is 400');
+    expect(($mapped['body']['error_code'] ?? '') === 'invalid_input', 'array filter error_code');
+}
+expect($filterCaught, 'array filter is rejected');
+
+reset_request();
+$_POST = ['type' => 'laptop', 'id' => 'SN-MISSING'];
+moirai_api_apply_actor('voorbeeldKey');
+$assignMissing = false;
+try {
+    moirai_api_dispatch('assign');
+} catch (InvalidArgumentException $error) {
+    $assignMissing = true;
+    $mapped = moirai_api_from_invalid_argument($error);
+    expect($mapped['status'] === 404, 'assign missing device is 404');
+    expect(($mapped['body']['error_code'] ?? '') === 'device_not_found', 'assign missing error_code');
+}
+expect($assignMissing, 'assign missing device throws');
+
+reset_request();
 $_POST = ['type' => 'laptop', 'id' => 'SN-API-1', 'uitgegeven_email' => 'nobody@kvt.nl'];
 moirai_api_apply_actor('voorbeeldKey');
 $caught = false;
@@ -195,11 +228,62 @@ expect($noteId > 0, 'notes_add stores message');
 $notes = dispatch_ok('notes_list', [], ['type' => 'laptop', 'id' => 'SN-API-1']);
 expect(count($notes['body']['messages'] ?? []) === 1, 'notes_list returns the note');
 
+dispatch_ok('create', [
+    'type' => 'laptop',
+    'model' => 'ThinkPad Other',
+    'serienummer' => 'SN-API-2',
+]);
+
+reset_request();
+$_POST = [
+    'type' => 'laptop',
+    'id' => 'SN-API-2',
+    'message_id' => (string) $noteId,
+    'message' => 'cross-device edit',
+];
+moirai_api_apply_actor('voorbeeldKey');
+$crossEdit = moirai_api_dispatch('notes_edit');
+expect(($crossEdit['status'] ?? 0) === 404, 'cross-device note edit is 404');
+expect(($crossEdit['body']['error_code'] ?? '') === 'note_not_found', 'cross-device note edit error_code');
+
+$edited = dispatch_ok('notes_edit', [
+    'type' => 'laptop',
+    'id' => 'SN-API-1',
+    'message_id' => (string) $noteId,
+    'message' => 'API note edited',
+]);
+expect(($edited['body']['message']['message_text'] ?? '') === 'API note edited', 'notes_edit updates matching thread');
+
+reset_request();
+$_POST = [
+    'type' => 'laptop',
+    'id' => 'SN-API-2',
+    'message_id' => (string) $noteId,
+];
+moirai_api_apply_actor('voorbeeldKey');
+$crossDelete = moirai_api_dispatch('notes_delete');
+expect(($crossDelete['status'] ?? 0) === 404, 'cross-device note delete is 404');
+expect(($crossDelete['body']['error_code'] ?? '') === 'note_not_found', 'cross-device note delete error_code');
+
+$stillThere = dispatch_ok('notes_list', [], ['type' => 'laptop', 'id' => 'SN-API-1']);
+expect(count($stillThere['body']['messages'] ?? []) === 1, 'cross-device delete leaves the note');
+
 dispatch_ok('notes_delete', [
     'type' => 'laptop',
     'id' => 'SN-API-1',
     'message_id' => (string) $noteId,
 ]);
+
+reset_request();
+$_POST = [
+    'type' => 'laptop',
+    'id' => 'SN-API-1',
+    'message_id' => (string) $noteId,
+];
+moirai_api_apply_actor('voorbeeldKey');
+$missingNote = moirai_api_dispatch('notes_delete');
+expect(($missingNote['status'] ?? 0) === 404, 'missing note delete is 404');
+expect(($missingNote['body']['error_code'] ?? '') === 'note_not_found', 'missing note delete error_code');
 
 $phone = dispatch_ok('create', [
     'type' => 'phone',
@@ -240,6 +324,20 @@ reset_request();
 $_POST = ['type' => 'laptop', 'id' => 'SN-API-1'];
 $gone = moirai_api_dispatch('get');
 expect(($gone['status'] ?? 0) === 404, 'get after delete is 404');
+
+reset_request();
+$_POST = ['type' => 'laptop', 'id' => 'SN-API-1'];
+moirai_api_apply_actor('voorbeeldKey');
+$deleteMissing = false;
+try {
+    moirai_api_dispatch('delete');
+} catch (InvalidArgumentException $error) {
+    $deleteMissing = true;
+    $mapped = moirai_api_from_invalid_argument($error);
+    expect($mapped['status'] === 404, 'delete missing device is 404');
+    expect(($mapped['body']['error_code'] ?? '') === 'device_not_found', 'delete missing error_code');
+}
+expect($deleteMissing, 'delete missing device throws');
 
 @unlink($tmp);
 @unlink($tmp . '-wal');

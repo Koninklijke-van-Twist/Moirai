@@ -1599,7 +1599,14 @@ function moirai_parse_list_filters(string $type, ?array $source = null): array
     $fields = moirai_filter_fields_for_type($typeKey);
     $filters = [];
     foreach ($fields as $field) {
-        $value = trim((string) ($source[$field] ?? ''));
+        if (!array_key_exists($field, $source) || $source[$field] === null) {
+            continue;
+        }
+        $raw = $source[$field];
+        if (!is_scalar($raw)) {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.invalid_input'));
+        }
+        $value = trim((string) $raw);
         if ($value !== '') {
             $filters[$field] = $value;
         }

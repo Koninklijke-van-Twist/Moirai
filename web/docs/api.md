@@ -26,7 +26,7 @@ Send the **secret** (not the label) via one of:
 - header `Authorization: Bearer 1234-5678-1234`
 - POST JSON/form field `api_key`
 
-Do **not** put keys in the querystring. `?api_key=` is ignored and, when it is the only key, returns `401` `api_key_query`.
+Do **not** put keys in the querystring. Any `?api_key=` — including on `help`/`spec`, or together with a header/body key — returns `401` `api_key_query`.
 
 ```json
 {

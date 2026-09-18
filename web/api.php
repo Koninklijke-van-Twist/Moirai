@@ -22,16 +22,16 @@ if ($jsonBodyStatus === 'invalid') {
 }
 
 $action = moirai_api_request_string('action');
-if (in_array($action, MOIRAI_API_PUBLIC_ACTIONS, true)) {
-    moirai_api_json(moirai_api_help());
-}
-
-if (moirai_api_query_has_api_key() && moirai_api_request_api_key() === '') {
+if (moirai_api_query_has_api_key()) {
     moirai_api_json([
         'ok' => false,
         'error' => moirai_loc('moirai.error.api_key_query'),
         'error_code' => 'api_key_query',
     ], 401);
+}
+
+if (in_array($action, MOIRAI_API_PUBLIC_ACTIONS, true)) {
+    moirai_api_json(moirai_api_help());
 }
 
 $auth = moirai_api_authenticate();
@@ -65,7 +65,8 @@ try {
     }
     moirai_api_json($result['body'], $result['status']);
 } catch (InvalidArgumentException $error) {
-    moirai_api_json(['ok' => false, 'error' => $error->getMessage(), 'error_code' => 'invalid_input'], 400);
+    $mapped = moirai_api_from_invalid_argument($error);
+    moirai_api_json($mapped['body'], $mapped['status']);
 } catch (Throwable $error) {
     error_log('Moirai API failed: ' . $error->getMessage());
     moirai_api_json(['ok' => false, 'error' => moirai_loc('moirai.error.generic'), 'error_code' => 'generic'], 500);

@@ -214,7 +214,7 @@ function moirai_api_help(): array
         'auth' => [
             'required_except' => ['help', 'spec'],
             'accept' => ['X-API-Key', 'Authorization: Bearer', 'POST body api_key'],
-            'reject' => ['querystring api_key'],
+            'reject' => ['querystring api_key (always 401, including help/spec and when a header/body key is also present)'],
             'keys' => 'Label => secret in local auth.php ($apiKeys). See auth.example.php. Real keys stay off git.',
         ],
         'actions' => [
@@ -292,8 +292,22 @@ function moirai_api_error(string $errorKey, int $status, ?string $errorCode = nu
 }
 
 /**
+ * Map domain not-found InvalidArgumentExceptions to 404; other validation stays 400.
+ *
  * @return array{status: int, body: array}
  */
+function moirai_api_from_invalid_argument(InvalidArgumentException $error): array
+{
+    $message = $error->getMessage();
+    foreach (['moirai.error.device_not_found' => 404, 'moirai.error.note_not_found' => 404] as $key => $status) {
+        if ($message === $key || $message === moirai_loc($key)) {
+            return moirai_api_error($key, $status);
+        }
+    }
+
+    return moirai_api_error('moirai.error.invalid_input', 400, 'invalid_input', $message);
+}
+
 function moirai_api_ok(array $extra, int $status = 200): array
 {
     return [
@@ -429,6 +443,10 @@ function moirai_api_ensure_chat(): void
         'can_delete' => 'own',
         'admin_bypass' => true,
         'migrate_device_notes' => true,
+        'i18n' => [
+            'error.not_found' => moirai_loc('moirai.error.note_not_found'),
+            'error.forbidden' => moirai_loc('moirai.error.forbidden'),
+        ],
     ]);
 }
 
@@ -779,7 +797,13 @@ function moirai_api_dispatch(string $action): array
                 return moirai_api_error('moirai.error.device_not_found', 404);
             }
             moirai_api_ensure_chat();
-            $message = KvtChat::editMapped($messageId, $text);
+            $typeKey = moirai_type_key($type);
+            $threadKey = moirai_device_notes_thread_key((string) $typeKey, $id);
+            try {
+                $message = KvtChat::editMappedInThread($messageId, $threadKey, $text);
+            } catch (InvalidArgumentException $error) {
+                return moirai_api_from_invalid_argument($error);
+            }
 
             return moirai_api_ok(['message' => $message]);
 
@@ -792,7 +816,13 @@ function moirai_api_dispatch(string $action): array
                 return moirai_api_error('moirai.error.device_not_found', 404);
             }
             moirai_api_ensure_chat();
-            KvtChat::deleteMapped($messageId);
+            $typeKey = moirai_type_key($type);
+            $threadKey = moirai_device_notes_thread_key((string) $typeKey, $id);
+            try {
+                KvtChat::deleteMappedInThread($messageId, $threadKey);
+            } catch (InvalidArgumentException $error) {
+                return moirai_api_from_invalid_argument($error);
+            }
 
             return moirai_api_ok([]);
 

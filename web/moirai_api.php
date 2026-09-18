@@ -264,6 +264,7 @@ function moirai_api_help(): array
             '400' => ['unknown_action', 'invalid_input', 'validation errors from moirai_data'],
             '403' => ['forbidden'],
             '404' => ['device_not_found', 'note_not_found'],
+            '405' => ['method_not_allowed'],
             '500' => ['generic'],
         ],
     ];

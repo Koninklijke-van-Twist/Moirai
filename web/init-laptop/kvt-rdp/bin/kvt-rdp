@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/rdp_connections.csv"
+
+mkdir -p "$(dirname "$CONFIG")"
+touch "$CONFIG"
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || {
+		if command -v kdialog >/dev/null 2>&1; then
+			kdialog --error "Missing dependency: $1"
+		else
+			printf 'Missing dependency: %s\n' "$1" >&2
+		fi
+		exit 1
+	}
+}
+
+need kdialog
+need secret-tool
+need xfreerdp3
+
+# --------------------------------------------------
+# Build menu
+# --------------------------------------------------
+
+OPTIONS=(
+	"new" "➕ New Connection"
+	"edit" "✏️ Edit Connection"
+)
+
+while IFS=',' read -r NAME USER SERVER DOMAIN; do
+	[ -n "$NAME" ] && OPTIONS+=("$NAME" "$NAME ($USER)")
+done < "$CONFIG"
+
+OPTIONS+=("delete" "🗑 Delete Connection")
+
+CHOICE=$(kdialog \
+	--title "KVT RDP" \
+	--menu "Select an RDP connection" \
+	"${OPTIONS[@]}") || exit 0
+
+[ -n "${CHOICE:-}" ] || exit 0
+
+# --------------------------------------------------
+# NEW CONNECTION
+# --------------------------------------------------
+
+if [ "$CHOICE" = "new" ]; then
+	NAME=$(kdialog --inputbox "Connection name") || exit 0
+	[ -z "$NAME" ] && exit 0
+
+	USER=$(kdialog --inputbox "Username") || exit 0
+	[ -z "$USER" ] && exit 0
+
+	SERVER=$(kdialog --inputbox "Server/IP") || exit 0
+	[ -z "$SERVER" ] && exit 0
+
+	DOMAIN=$(kdialog --inputbox "Domain" "kvt") || exit 0
+	DOMAIN=${DOMAIN:-kvt}
+
+	PASSWORD=$(kdialog --password "Password") || exit 0
+	[ -z "$PASSWORD" ] && exit 0
+
+	echo "$NAME,$USER,$SERVER,$DOMAIN" >> "$CONFIG"
+
+	printf '%s' "$PASSWORD" | secret-tool store \
+		--label="RDP: $NAME" \
+		service RDP \
+		connection "$NAME"
+
+	kdialog --passivepopup "Connection saved"
+	exit 0
+fi
+
+# --------------------------------------------------
+# EDIT CONNECTION
+# --------------------------------------------------
+
+if [ "$CHOICE" = "edit" ]; then
+	mapfile -t CONNECTIONS < <(cut -d',' -f1 "$CONFIG")
+	[ ${#CONNECTIONS[@]} -eq 0 ] && exit 0
+
+	SELECTED=$(kdialog --combobox "Select connection to edit" "${CONNECTIONS[@]}") || exit 0
+	[ -z "$SELECTED" ] && exit 0
+
+	LINE=$(grep "^$SELECTED," "$CONFIG")
+	IFS=',' read -r OLDNAME OLDUSER OLDSERVER OLDDOMAIN <<< "$LINE"
+
+	NAME=$(kdialog --inputbox "Connection Name" "$OLDNAME") || exit 0
+	[ -z "$NAME" ] && exit 0
+
+	USER=$(kdialog --inputbox "Username" "$OLDUSER") || exit 0
+	[ -z "$USER" ] && exit 0
+
+	SERVER=$(kdialog --inputbox "Server/IP" "$OLDSERVER") || exit 0
+	[ -z "$SERVER" ] && exit 0
+
+	DOMAIN=$(kdialog --inputbox "Domain" "$OLDDOMAIN") || exit 0
+	DOMAIN=${DOMAIN:-kvt}
+
+	PASSWORD=$(kdialog --password "New password (leave blank to keep current password)") || true
+
+	awk -F',' -v old="$OLDNAME" \
+		-v new="$NAME,$USER,$SERVER,$DOMAIN" '
+		$1==old {$0=new}
+		{print}
+	' OFS=',' "$CONFIG" > "$CONFIG.tmp"
+	mv "$CONFIG.tmp" "$CONFIG"
+
+	if [ "$OLDNAME" != "$NAME" ]; then
+		OLDPASS=$(secret-tool lookup service RDP connection "$OLDNAME" || true)
+		if [ -n "${OLDPASS:-}" ]; then
+			printf '%s' "$OLDPASS" | secret-tool store \
+				--label="RDP: $NAME" \
+				service RDP \
+				connection "$NAME"
+			secret-tool clear service RDP connection "$OLDNAME" >/dev/null 2>&1 || true
+		fi
+	fi
+
+	if [ -n "${PASSWORD:-}" ]; then
+		printf '%s' "$PASSWORD" | secret-tool store \
+			--label="RDP: $NAME" \
+			service RDP \
+			connection "$NAME"
+	fi
+
+	kdialog --passivepopup "Connection updated"
+	exit 0
+fi
+
+# --------------------------------------------------
+# DELETE CONNECTION
+# --------------------------------------------------
+
+if [ "$CHOICE" = "delete" ]; then
+	mapfile -t CONNECTIONS < <(cut -d',' -f1 "$CONFIG")
+	[ ${#CONNECTIONS[@]} -eq 0 ] && exit 0
+
+	DEL=$(kdialog --combobox "Choose connection to delete" "${CONNECTIONS[@]}") || exit 0
+	[ -z "$DEL" ] && exit 0
+
+	grep -v "^$DEL," "$CONFIG" > "$CONFIG.tmp"
+	mv "$CONFIG.tmp" "$CONFIG"
+
+	secret-tool clear service RDP connection "$DEL" >/dev/null 2>&1 || true
+	kdialog --passivepopup "Connection deleted"
+	exit 0
+fi
+
+# --------------------------------------------------
+# LOAD CONNECTION
+# --------------------------------------------------
+
+LINE=$(grep "^$CHOICE," "$CONFIG") || {
+	kdialog --error "Connection not found: $CHOICE"
+	exit 1
+}
+
+IFS=',' read -r NAME USER SERVER DOMAIN <<< "$LINE"
+
+PASSWORD=$(secret-tool lookup service RDP connection "$NAME" || true)
+
+if [ -z "${PASSWORD:-}" ]; then
+	PASSWORD=$(kdialog --password "Password for $NAME") || exit 0
+	[ -z "$PASSWORD" ] && exit 0
+	printf '%s' "$PASSWORD" | secret-tool store \
+		--label="RDP: $NAME" \
+		service RDP \
+		connection "$NAME"
+fi
+
+# --------------------------------------------------
+# CONNECT
+# --------------------------------------------------
+
+# VERVANG 1e0d:f1d0 door jouw eigen VID:PID uit lsusb!
+USB_ID="1e0d:f1d0"
+
+exec xfreerdp3 \
+	/u:"$USER" \
+	/p:"$PASSWORD" \
+	/v:"$SERVER" \
+	/d:"$DOMAIN" \
+	/cert:ignore \
+	/h:1080 \
+	/w:1920 \
+	/usb:id,dev:$USB_ID \
+	+clipboard

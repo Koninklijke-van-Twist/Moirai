@@ -53,7 +53,7 @@ Het script stopt bij de eerste fout (`set -euo pipefail`). Volgorde:
    Start `bash enroll.sh`. Dat normaliseert `/etc/os-release` (CachyOS → Arch, zodat Fleet het herkent), installeert Node.js/npm en fleetctl, bouwt een fleetd-package en installeert dat.
 
 3. **KVT RDP (`kvt-rdp/install.sh --system`)**  
-   Installeert de KVT RDP-app system-wide (`/usr/local/bin/kvt-rdp` + desktop entry), zodat FreeRDP-verbindingen via het app-menu beschikbaar zijn.
+   Installeert de KVT RDP-app system-wide: binary `/usr/local/bin/kvt-rdp`, menuitem `/usr/share/applications/nl.kvt.rdp.desktop` (niet `/usr/local/share`, dat Plasma vaak niet indexeert) en het icoon in `/usr/share/icons/hicolor`. Daarna ververst het script het applicatiemenu van de desktop-gebruiker.
 
 4. **KVT Energise**  
    Draait `KVT-Energise/install.sh` als de desktop-gebruiker. Het effect wordt gekopieerd naar `~/.local/share/kwin/effects/kwin6_effect_kvt_energise`.  
@@ -95,6 +95,6 @@ Het script stopt bij de eerste fout (`set -euo pipefail`). Volgorde:
    - cyclus: dot1 → dot2 → dot3 → dot1
 
 
-10. **KVT RDS Connect (`kvt-rds-connect/install.sh`)**  
-   Installeert FreeRDP (`xfreerdp3`) en GTK-afhankelijkheden indien nodig, daarna de launcher naar `~/.local/share/kvt-rds-connect/`, wrapper `~/.local/bin/kvt-rds-connect` en een app-menu-item. Domain is vast `KVT`; de gebruiker vult username, wachtwoord en eventueel een USB-apparaat in.
+10. **KVT RDS Connect (`kvt-rds-connect/install.sh --system`)**  
+   Installeert FreeRDP (`xfreerdp3`) en GTK-afhankelijkheden indien nodig, daarna de launcher naar `/usr/local/share/kvt-rds-connect/`, wrapper `/usr/local/bin/kvt-rds-connect` en menuitem `/usr/share/applications/kvt-rds-connect.desktop` met een echt icoon. Domain is vast `KVT`; de gebruiker vult username, wachtwoord en eventueel een USB-apparaat in. Het applicatiemenu van de desktop-gebruiker wordt daarna ververst.
 

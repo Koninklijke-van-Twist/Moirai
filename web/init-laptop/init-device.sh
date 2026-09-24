@@ -101,9 +101,9 @@ run_hosts() {
 install_kvt_rdp() {
 	[ -f "$KVT_RDP_INSTALL" ] || die "KVT RDP install-script niet gevonden: $KVT_RDP_INSTALL"
 	log "Installeer KVT RDP..."
-	# System-wide so every user on the device gets the launcher
+	# System-wide: binary in /usr/local/bin, menu entry in /usr/share/applications.
 	bash "$KVT_RDP_INSTALL" --system
-	log "KVT RDP is geinstalleerd."
+	log "KVT RDP is geinstalleerd (menu: KVT RDP)."
 }
 
 kwin_plugin_ids_for_open_close() {
@@ -521,28 +521,29 @@ EOF
 
 
 install_kvt_rds_connect() {
+	[ -f "$RDS_CONNECT_INSTALL" ] || die "KVT RDS Connect installer niet gevonden: $RDS_CONNECT_INSTALL"
+
+	# System-wide menu entry in /usr/share/applications. The previous per-user
+	# install was skipped when SUDO_USER was missing, and Kickoff was not refreshed.
+	log "Installeer KVT RDS Connect..."
+	bash "$RDS_CONNECT_INSTALL" --system
+	log "KVT RDS Connect is geinstalleerd (menu: KVT RDS Connect)."
+}
+
+refresh_application_menu() {
 	if [ -z "$TARGET_USER" ]; then
-		warn "Sla KVT RDS Connect over: geen desktop-gebruiker."
+		log "Geen desktop-gebruiker; KVT RDP en KVT RDS Connect staan in het systeemmenu en verschijnen bij de volgende login."
 		return
 	fi
 
-	[ -f "$RDS_CONNECT_INSTALL" ] || die "KVT RDS Connect installer niet gevonden: $RDS_CONNECT_INSTALL"
-
-	# Dependencies as root (init-device already runs as root)
-	local need_pkgs=()
-	command -v xfreerdp3 >/dev/null 2>&1 || need_pkgs+=(freerdp)
-	command -v lsusb >/dev/null 2>&1 || need_pkgs+=(usbutils)
-	if ! python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk' >/dev/null 2>&1; then
-		need_pkgs+=(python-gobject gtk3)
+	if run_as_user bash -c 'command -v kbuildsycoca6 >/dev/null 2>&1'; then
+		log "Ververs het applicatiemenu voor $TARGET_USER..."
+		if ! run_as_user kbuildsycoca6 --noincremental >/dev/null 2>&1; then
+			warn "Kon het applicatiemenu niet verversen. De apps verschijnen na opnieuw inloggen."
+		fi
+	else
+		log "kbuildsycoca6 ontbreekt; de apps verschijnen na opnieuw inloggen."
 	fi
-	if [ "${#need_pkgs[@]}" -gt 0 ]; then
-		log "Installeer KVT RDS Connect afhankelijkheden: ${need_pkgs[*]}"
-		pacman -S --needed --noconfirm "${need_pkgs[@]}"
-	fi
-
-	log "Installeer KVT RDS Connect voor gebruiker $TARGET_USER..."
-	run_as_user bash "$RDS_CONNECT_INSTALL"
-	log "KVT RDS Connect is geinstalleerd (menu: KVT RDS Connect)."
 }
 
 main() {
@@ -560,6 +561,7 @@ main() {
 	set_launcher_icons
 	install_boot_and_splash
 	install_kvt_rds_connect
+	refresh_application_menu
 
 	log "Klaar. Device-init is uitgevoerd."
 }

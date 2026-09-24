@@ -221,6 +221,30 @@ $linuxCorrected = moirai_save_device('laptop', [
 expect(empty($linuxCorrected['verouderd']), 'linux date corrected to 4y10m clears listing flag');
 expect(empty($linuxCorrected['verouderd_alert_verzonden']), 'linux date corrected to 4y10m clears alert flag');
 
+seed_laptop('LINUX-STALE', '2021-11-15', true, false, 'Linux');
+moirai_update_aging_flags('laptops', 'LINUX-STALE', true, true);
+$staleBefore = moirai_get_device('laptop', 'LINUX-STALE');
+expect(!empty($staleBefore['verouderd']), 'linux flagged under old 4y10m starts with listing flag');
+expect(!empty($staleBefore['verouderd_alert_verzonden']), 'linux flagged under old 4y10m starts with alert flag');
+expect(!moirai_device_is_aging($staleBefore, $GLOBALS['moirai_today']), 'linux at 4y10m is below the doubled threshold');
+expect(moirai_device_status($staleBefore) === 'assigned', 'stale linux device stays assigned before nightly');
+
+$mails = [];
+$staleRun = moirai_run_aging_alerts();
+expect($staleRun['mailed'] === 0, 'clearing a no-longer-aging linux device does not mail');
+expect($staleRun['marked_unavailable'] === 0, 'clearing aging flags does not change assignment');
+$stale = moirai_get_device('laptop', 'LINUX-STALE');
+expect(empty($stale['verouderd']), 'nightly clears verouderd when linux is under 9y8m');
+expect(empty($stale['verouderd_alert_verzonden']), 'nightly clears alert flag when linux is under 9y8m');
+expect(moirai_device_status($stale) === 'assigned', 'clearing aging flags leaves assignment unchanged');
+
+$mails = [];
+$staleAgain = moirai_run_aging_alerts();
+expect($staleAgain['mailed'] === 0, 'second nightly after clear stays quiet');
+$stale = moirai_get_device('laptop', 'LINUX-STALE');
+expect(empty($stale['verouderd']), 'cleared verouderd stays clear');
+expect(empty($stale['verouderd_alert_verzonden']), 'cleared alert flag stays clear');
+
 @unlink($tmp);
 @unlink(dirname($tmp) . '/aging_nightly.lock');
 

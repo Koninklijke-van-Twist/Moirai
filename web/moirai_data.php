@@ -1887,6 +1887,8 @@ function moirai_aging_lock_path(): string
  * (twice that when os is Linux).
  * Mails ICT once when the device is not Reserve. Reserve devices are marked
  * Unavailable without mail. Flags are persisted so reruns are idempotent.
+ * A laptop or phone that is no longer aging has verouderd and
+ * verouderd_alert_verzonden cleared. Assignment history is left as-is.
  *
  * @return array{
  *   scanned: int,
@@ -1946,6 +1948,10 @@ function moirai_run_aging_alerts_locked(?callable $sendMail = null, ?DateTimeImm
         foreach (moirai_list_devices($publicType) as $device) {
             $result['scanned']++;
             if (!moirai_device_is_aging($device, $today)) {
+                $key = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));
+                if ($key !== '' && (!empty($device['verouderd']) || !empty($device['verouderd_alert_verzonden']))) {
+                    moirai_update_aging_flags($typeKey, $key, false, false);
+                }
                 $result['skipped']++;
                 continue;
             }

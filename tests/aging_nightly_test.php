@@ -189,7 +189,8 @@ $reAged = moirai_save_device('laptop', [
     'os' => 'Windows',
     'fysieke_staat' => 'netjes',
 ], [], false);
-expect(empty($reAged['verouderd']), 'flags stay clear until nightly after becoming old again');
+expect(!empty($reAged['verouderd']), 'becoming old again sets listing flag on save');
+expect(empty($reAged['verouderd_alert_verzonden']), 'becoming old again leaves the alert flag for nightly');
 $mails = [];
 $reAgedRun = moirai_run_aging_alerts();
 expect($reAgedRun['mailed'] === 1, 'aging again after date correction sends one new alert');
@@ -220,6 +221,101 @@ $linuxCorrected = moirai_save_device('laptop', [
 ], [], false);
 expect(empty($linuxCorrected['verouderd']), 'linux date corrected to 4y10m clears listing flag');
 expect(empty($linuxCorrected['verouderd_alert_verzonden']), 'linux date corrected to 4y10m clears alert flag');
+
+seed_laptop('LINUX-STALE', '2021-11-15', true, false, 'Linux');
+moirai_update_aging_flags('laptops', 'LINUX-STALE', true, true);
+$staleBefore = moirai_get_device('laptop', 'LINUX-STALE');
+expect(!empty($staleBefore['verouderd']), 'linux flagged under old 4y10m starts with listing flag');
+expect(!empty($staleBefore['verouderd_alert_verzonden']), 'linux flagged under old 4y10m starts with alert flag');
+expect(!moirai_device_is_aging($staleBefore, $GLOBALS['moirai_today']), 'linux at 4y10m is below the doubled threshold');
+expect(moirai_device_status($staleBefore) === 'assigned', 'stale linux device stays assigned before nightly');
+
+$mails = [];
+$staleRun = moirai_run_aging_alerts();
+expect($staleRun['mailed'] === 0, 'clearing a no-longer-aging linux device does not mail');
+expect($staleRun['marked_unavailable'] === 0, 'clearing aging flags does not change assignment');
+$stale = moirai_get_device('laptop', 'LINUX-STALE');
+expect(empty($stale['verouderd']), 'nightly clears verouderd when linux is under 9y8m');
+expect(empty($stale['verouderd_alert_verzonden']), 'nightly clears alert flag when linux is under 9y8m');
+expect(moirai_device_status($stale) === 'assigned', 'clearing aging flags leaves assignment unchanged');
+
+$mails = [];
+$staleAgain = moirai_run_aging_alerts();
+expect($staleAgain['mailed'] === 0, 'second nightly after clear stays quiet');
+$stale = moirai_get_device('laptop', 'LINUX-STALE');
+expect(empty($stale['verouderd']), 'cleared verouderd stays clear');
+expect(empty($stale['verouderd_alert_verzonden']), 'cleared alert flag stays clear');
+
+seed_laptop('LINUX-TO-WIN', '2021-11-15', true, false, 'Linux');
+seed_laptop('WIN-TO-LINUX', '2021-11-15', true, false, 'Windows');
+$mails = [];
+$osSwitchPrep = moirai_run_aging_alerts();
+expect($osSwitchPrep['mailed'] === 1, 'before OS switch only the Windows laptop at 4y10m is mailed');
+expect(array_column($mails, 'id') === ['WIN-TO-LINUX'], 'OS-switch prep mail is the Windows laptop');
+$linuxToWin = moirai_get_device('laptop', 'LINUX-TO-WIN');
+expect(empty($linuxToWin['verouderd']), 'linux at 4y10m is unflagged before OS change');
+$winToLinux = moirai_get_device('laptop', 'WIN-TO-LINUX');
+expect(!empty($winToLinux['verouderd']), 'windows at 4y10m is flagged before OS change');
+expect(!empty($winToLinux['verouderd_alert_verzonden']), 'windows at 4y10m already has an alert');
+
+$linuxToWin = moirai_save_device('laptop', [
+    'original_key' => 'LINUX-TO-WIN',
+    'id' => 'LINUX-TO-WIN',
+    'model' => 'ThinkPad LINUX-TO-WIN',
+    'serienummer' => 'LINUX-TO-WIN',
+    'aanschafdatum' => '2021-11-15',
+    'os' => 'Windows',
+    'fysieke_staat' => 'netjes',
+], [], false);
+expect(!empty($linuxToWin['verouderd']), 'linux to windows at 4y10m sets listing flag on save');
+expect(empty($linuxToWin['verouderd_alert_verzonden']), 'linux to windows leaves the alert flag for nightly');
+expect(moirai_device_status($linuxToWin) === 'assigned', 'linux to windows leaves assignment unchanged');
+
+$winToLinux = moirai_save_device('laptop', [
+    'original_key' => 'WIN-TO-LINUX',
+    'id' => 'WIN-TO-LINUX',
+    'model' => 'ThinkPad WIN-TO-LINUX',
+    'serienummer' => 'WIN-TO-LINUX',
+    'aanschafdatum' => '2021-11-15',
+    'os' => 'Linux',
+    'fysieke_staat' => 'netjes',
+], [], false);
+expect(empty($winToLinux['verouderd']), 'windows to linux at 4y10m clears listing flag on save');
+expect(empty($winToLinux['verouderd_alert_verzonden']), 'windows to linux at 4y10m clears alert flag on save');
+expect(moirai_device_status($winToLinux) === 'assigned', 'windows to linux leaves assignment unchanged');
+
+$mails = [];
+$osSwitchRun = moirai_run_aging_alerts();
+expect($osSwitchRun['mailed'] === 1, 'nightly mails the laptop that became aging via OS change');
+expect(array_column($mails, 'id') === ['LINUX-TO-WIN'], 'OS-change mail is the former linux laptop');
+expect($osSwitchRun['marked_unavailable'] === 0, 'OS-change nightly does not change assignment');
+$linuxToWin = moirai_get_device('laptop', 'LINUX-TO-WIN');
+expect(!empty($linuxToWin['verouderd_alert_verzonden']), 'former linux laptop gets its alert after nightly');
+$winToLinux = moirai_get_device('laptop', 'WIN-TO-LINUX');
+expect(empty($winToLinux['verouderd']), 'former windows laptop stays unflagged after nightly');
+expect(empty($winToLinux['verouderd_alert_verzonden']), 'former windows laptop alert stays clear after nightly');
+
+seed_laptop('LINUX-KEEP', '2017-01-15', true, false, 'Linux');
+$mails = [];
+$keepPrep = moirai_run_aging_alerts();
+expect($keepPrep['mailed'] === 1, 'linux at 9y8m is mailed before OS change to windows');
+$linuxKeep = moirai_save_device('laptop', [
+    'original_key' => 'LINUX-KEEP',
+    'id' => 'LINUX-KEEP',
+    'model' => 'ThinkPad LINUX-KEEP',
+    'serienummer' => 'LINUX-KEEP',
+    'aanschafdatum' => '2017-01-15',
+    'os' => 'Windows',
+    'fysieke_staat' => 'netjes',
+], [], false);
+expect(!empty($linuxKeep['verouderd']), 'linux to windows at 9y8m stays flagged');
+expect(!empty($linuxKeep['verouderd_alert_verzonden']), 'linux to windows at 9y8m keeps the alert flag');
+$mails = [];
+$keepRun = moirai_run_aging_alerts();
+expect($keepRun['mailed'] === 0, 'still-aging OS change does not mail again');
+$linuxKeep = moirai_get_device('laptop', 'LINUX-KEEP');
+expect(!empty($linuxKeep['verouderd']), 'still-aging OS change keeps listing flag after nightly');
+expect(!empty($linuxKeep['verouderd_alert_verzonden']), 'still-aging OS change keeps alert flag after nightly');
 
 @unlink($tmp);
 @unlink(dirname($tmp) . '/aging_nightly.lock');

@@ -38,13 +38,13 @@ $GLOBALS['moirai_mail_sender'] = static function (array $device, string $type) u
     return true;
 };
 
-function seed_laptop(string $serial, string $date, bool $assign = false, bool $unavailable = false): array
+function seed_laptop(string $serial, string $date, bool $assign = false, bool $unavailable = false, string $os = 'Windows'): array
 {
     $saved = moirai_save_device('laptop', [
         'model' => 'ThinkPad ' . $serial,
         'serienummer' => $serial,
         'aanschafdatum' => $date,
-        'os' => 'Windows',
+        'os' => $os,
         'fysieke_staat' => 'netjes',
     ], [], false);
 
@@ -120,6 +120,15 @@ $tooYoung = moirai_device_is_aging(['aanschafdatum' => '2021-11-16'], $GLOBALS['
 expect($exact, 'exactly 4y10m is aging');
 expect(!$tooYoung, 'one day under 4y10m is not aging');
 
+$linuxAtBase = moirai_device_is_aging(['aanschafdatum' => '2021-11-15', 'os' => 'Linux'], $GLOBALS['moirai_today']);
+$linuxTooYoung = moirai_device_is_aging(['aanschafdatum' => '2017-01-16', 'os' => 'Linux'], $GLOBALS['moirai_today']);
+$linuxExact = moirai_device_is_aging(['aanschafdatum' => '2017-01-15', 'os' => 'linux'], $GLOBALS['moirai_today']);
+$osxAtBase = moirai_device_is_aging(['aanschafdatum' => '2021-11-15', 'os' => 'OSX'], $GLOBALS['moirai_today']);
+expect(!$linuxAtBase, 'linux at 4y10m is not aging');
+expect(!$linuxTooYoung, 'linux one day under 9y8m is not aging');
+expect($linuxExact, 'linux at exactly 9y8m is aging');
+expect($osxAtBase, 'osx at 4y10m stays aging');
+
 $mails = [];
 $second = moirai_run_aging_alerts();
 expect($second['mailed'] === 0, 'second run does not re-mail');
@@ -187,6 +196,30 @@ expect($reAgedRun['mailed'] === 1, 'aging again after date correction sends one 
 $reAged = moirai_get_device('laptop', 'OLD-ASSIGNED');
 expect(!empty($reAged['verouderd']), 'listing flag set again after becoming old');
 expect(!empty($reAged['verouderd_alert_verzonden']), 'alert flag set again after becoming old');
+
+seed_laptop('LINUX-BASE', '2021-11-15', true, false, 'Linux');
+seed_laptop('LINUX-DOUBLE', '2017-01-15', true, false, 'Linux');
+$mails = [];
+$linuxRun = moirai_run_aging_alerts();
+expect($linuxRun['mailed'] === 1, 'linux nightly mails only the doubled-threshold device');
+$linuxMailedIds = array_column($mails, 'id');
+expect($linuxMailedIds === ['LINUX-DOUBLE'], 'linux mail is the 9y8m laptop');
+$linuxBase = moirai_get_device('laptop', 'LINUX-BASE');
+expect(empty($linuxBase['verouderd']), 'linux at 4y10m stays unflagged');
+$linuxDouble = moirai_get_device('laptop', 'LINUX-DOUBLE');
+expect(!empty($linuxDouble['verouderd']), 'linux at 9y8m is flagged');
+
+$linuxCorrected = moirai_save_device('laptop', [
+    'original_key' => 'LINUX-DOUBLE',
+    'id' => 'LINUX-DOUBLE',
+    'model' => 'ThinkPad LINUX-DOUBLE',
+    'serienummer' => 'LINUX-DOUBLE',
+    'aanschafdatum' => '2021-11-15',
+    'os' => 'Linux',
+    'fysieke_staat' => 'netjes',
+], [], false);
+expect(empty($linuxCorrected['verouderd']), 'linux date corrected to 4y10m clears listing flag');
+expect(empty($linuxCorrected['verouderd_alert_verzonden']), 'linux date corrected to 4y10m clears alert flag');
 
 @unlink($tmp);
 @unlink(dirname($tmp) . '/aging_nightly.lock');

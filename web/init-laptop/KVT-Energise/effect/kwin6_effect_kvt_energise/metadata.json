@@ -1,0 +1,39 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Name": "KVT Energise",
+        "Description": "KVT Energise window close/open effect (based on Burn-My-Windows Energize B, with analytical SVG linger mask)",
+        "Icon": "preferences-system-windows-effect-energize-b",
+        "Category": "Window Open/Close Animation",
+        "Authors": [
+            {
+                "Name": "Simon Schneegans",
+                "Email": "code@simonschneegans.de"
+            },
+            {
+                "Name": "Martin Fl\u00f6ser",
+                "Email": "mgraesslin@kde.org"
+            },
+            {
+                "Name": "Vlad Zahorodnii",
+                "Email": "vlad.zahorodnii@kde.org"
+            }
+        ],
+        "Id": "kwin6_effect_kvt_energise",
+        "License": "GPLv3",
+        "Version": "1.1",
+        "EnabledByDefault": false,
+        "Website": "https://github.com/Schneegans/Burn-My-Windows/",
+        "BugReportUrl": "https://github.com/Schneegans/Burn-My-Windows/issues",
+        "ServiceTypes": [
+            "KWin/Effect"
+        ]
+    },
+    "X-KDE-ConfigModule": "kcm_kwin4_genericscripted",
+    "X-KDE-Ordering": "60",
+    "X-KDE-PluginKeyword": "kwin6_effect_kvt_energise",
+    "X-KWin-Config-TranslationDomain": "burn-my-windows",
+    "X-KWin-Exclusive-Category": "toplevel-open-close-animation",
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

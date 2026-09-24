@@ -1,0 +1,3 @@
+# Laptop-initpakket: bytes exact bewaren (scripts, afbeeldingen, .mo).
+# Het uitvoerbaar-bit volgt de git-filemode, niet CRLF-conversie.
+web/init-laptop/** -text

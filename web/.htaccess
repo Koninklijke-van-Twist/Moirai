@@ -1,3 +1,2 @@
-<Files "init-laptop.zip">
-    Require all denied
-</Files>
+# Het laptop-initpakket staat in init-laptop/ (geen binary zip in git).
+# Die map weigert directe HTTP-toegang; download_enroll.php streamt init-laptop.zip.

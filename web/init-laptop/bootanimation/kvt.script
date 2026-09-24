@@ -1,0 +1,261 @@
+# KVT boot animation
+# main.png stays visible. Dots lerp 100% -> 0%; when a fade-out
+# crosses 50%, the next dot lerps 0% -> 100%, then fades out, cycling 1-2-3.
+
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+# ~0.7s per fade at Plymouth's typical ~50 Hz refresh.
+fade_speed = 1.0 / 35;
+
+fun fit_image(path)
+  {
+    local.raw = Image(path);
+    local.sw = Window.GetWidth();
+    local.sh = Window.GetHeight();
+    local.iw = raw.GetWidth();
+    local.ih = raw.GetHeight();
+    local.scale = sw / iw;
+    if (ih * scale > sh)
+      {
+        scale = sh / ih;
+      }
+    return raw.Scale(Math.Int(iw * scale), Math.Int(ih * scale));
+  }
+
+fun center_sprite(image, z)
+  {
+    local.s = Sprite(image);
+    local.x = Window.GetX() + Math.Int((Window.GetWidth() - image.GetWidth()) / 2);
+    local.y = Window.GetY() + Math.Int((Window.GetHeight() - image.GetHeight()) / 2);
+    s.SetPosition(x, y, z);
+    return s;
+  }
+
+main_image = fit_image("main.png");
+dot1_image = fit_image("dot1.png");
+dot2_image = fit_image("dot2.png");
+dot3_image = fit_image("dot3.png");
+
+main_sprite = center_sprite(main_image, 1);
+dot1_sprite = center_sprite(dot1_image, 2);
+dot2_sprite = center_sprite(dot2_image, 3);
+dot3_sprite = center_sprite(dot3_image, 4);
+
+main_sprite.SetOpacity(1);
+dot1_sprite.SetOpacity(1);
+dot2_sprite.SetOpacity(0);
+dot3_sprite.SetOpacity(0);
+
+# state: 0 = idle, 1 = fade in, 2 = fade out
+d1_op = 1; d1_st = 2; d1_half = 0;
+d2_op = 0; d2_st = 0; d2_half = 0;
+d3_op = 0; d3_st = 0; d3_half = 0;
+
+fun start_fade_in(which)
+  {
+    if (which == 1)
+      {
+        global.d1_st = 1;
+        global.d1_half = 0;
+      }
+    else
+      {
+        if (which == 2)
+          {
+            global.d2_st = 1;
+            global.d2_half = 0;
+          }
+        else
+          {
+            global.d3_st = 1;
+            global.d3_half = 0;
+          }
+      }
+  }
+
+fun next_dot(which)
+  {
+    if (which == 1)
+      return 2;
+    if (which == 2)
+      return 3;
+    return 1;
+  }
+
+fun tick_dot(which)
+  {
+    local.op;
+    local.st;
+    local.half;
+
+    if (which == 1)
+      {
+        op = global.d1_op;
+        st = global.d1_st;
+        half = global.d1_half;
+      }
+    else
+      {
+        if (which == 2)
+          {
+            op = global.d2_op;
+            st = global.d2_st;
+            half = global.d2_half;
+          }
+        else
+          {
+            op = global.d3_op;
+            st = global.d3_st;
+            half = global.d3_half;
+          }
+      }
+
+    local.new_op = op;
+    local.new_st = st;
+    local.new_half = half;
+
+    if (st == 1)
+      {
+        new_op = op + fade_speed;
+        if (new_op >= 1)
+          {
+            new_op = 1;
+            new_st = 2;
+            new_half = 0;
+          }
+      }
+
+    if (st == 2)
+      {
+        new_op = op - fade_speed;
+        if (half == 0 && new_op <= 0.5)
+          {
+            new_half = 1;
+            start_fade_in(next_dot(which));
+          }
+        if (new_op <= 0)
+          {
+            new_op = 0;
+            new_st = 0;
+            new_half = 0;
+          }
+      }
+
+    if (which == 1)
+      {
+        global.d1_op = new_op;
+        global.d1_st = new_st;
+        global.d1_half = new_half;
+        dot1_sprite.SetOpacity(new_op);
+      }
+    else
+      {
+        if (which == 2)
+          {
+            global.d2_op = new_op;
+            global.d2_st = new_st;
+            global.d2_half = new_half;
+            dot2_sprite.SetOpacity(new_op);
+          }
+        else
+          {
+            global.d3_op = new_op;
+            global.d3_st = new_st;
+            global.d3_half = new_half;
+            dot3_sprite.SetOpacity(new_op);
+          }
+      }
+  }
+
+fun refresh_callback()
+  {
+    tick_dot(1);
+    tick_dot(2);
+    tick_dot(3);
+  }
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Password prompt (LUKS / encrypted root), using shared script-theme assets.
+status = "normal";
+
+fun dialog_setup()
+  {
+    local.box;
+    local.lock;
+    local.entry;
+
+    box.image = Image("box.png");
+    lock.image = Image("lock.png");
+    entry.image = Image("entry.png");
+
+    box.sprite = Sprite(box.image);
+    box.x = Window.GetX() + Window.GetWidth() / 2 - box.image.GetWidth() / 2;
+    box.y = Window.GetY() + Window.GetHeight() / 2 - box.image.GetHeight() / 2;
+    box.z = 10000;
+    box.sprite.SetPosition(box.x, box.y, box.z);
+
+    lock.sprite = Sprite(lock.image);
+    lock.x = box.x + box.image.GetWidth() / 2 - (lock.image.GetWidth() + entry.image.GetWidth()) / 2;
+    lock.y = box.y + box.image.GetHeight() / 2 - lock.image.GetHeight() / 2;
+    lock.z = box.z + 1;
+    lock.sprite.SetPosition(lock.x, lock.y, lock.z);
+
+    entry.sprite = Sprite(entry.image);
+    entry.x = lock.x + lock.image.GetWidth();
+    entry.y = box.y + box.image.GetHeight() / 2 - entry.image.GetHeight() / 2;
+    entry.z = box.z + 1;
+    entry.sprite.SetPosition(entry.x, entry.y, entry.z);
+
+    global.dialog.box = box;
+    global.dialog.lock = lock;
+    global.dialog.entry = entry;
+    global.dialog.bullet_image = Image("bullet.png");
+    dialog_opacity(1);
+  }
+
+fun dialog_opacity(opacity)
+  {
+    dialog.box.sprite.SetOpacity(opacity);
+    dialog.lock.sprite.SetOpacity(opacity);
+    dialog.entry.sprite.SetOpacity(opacity);
+    for (index = 0; dialog.bullet[index]; index++)
+      {
+        dialog.bullet[index].sprite.SetOpacity(opacity);
+      }
+  }
+
+fun display_normal_callback()
+  {
+    global.status = "normal";
+    if (global.dialog)
+      dialog_opacity(0);
+  }
+
+fun display_password_callback(prompt, bullets)
+  {
+    global.status = "password";
+    if (!global.dialog)
+      dialog_setup();
+    else
+      dialog_opacity(1);
+    for (index = 0; dialog.bullet[index] || index < bullets; index++)
+      {
+        if (!dialog.bullet[index])
+          {
+            dialog.bullet[index].sprite = Sprite(dialog.bullet_image);
+            dialog.bullet[index].x = dialog.entry.x + index * dialog.bullet_image.GetWidth();
+            dialog.bullet[index].y = dialog.entry.y + dialog.entry.image.GetHeight() / 2 - dialog.bullet_image.GetHeight() / 2;
+            dialog.bullet[index].z = dialog.entry.z + 1;
+            dialog.bullet[index].sprite.SetPosition(dialog.bullet[index].x, dialog.bullet[index].y, dialog.bullet[index].z);
+          }
+        if (index < bullets)
+          dialog.bullet[index].sprite.SetOpacity(1);
+        else
+          dialog.bullet[index].sprite.SetOpacity(0);
+      }
+  }
+
+Plymouth.SetDisplayNormalFunction(display_normal_callback);
+Plymouth.SetDisplayPasswordFunction(display_password_callback);

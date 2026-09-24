@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "KVT"
+            }
+        ],
+        "Description": "KVT splash (same animation as the boot screen)",
+        "Id": "org.kvt.splash",
+        "License": "MIT",
+        "Name": "KVT",
+        "Version": "1.0"
+    },
+    "Keywords": "Desktop;Workspace;Appearance;Look and Feel;Splash;",
+    "X-Plasma-APIVersion": "2"
+}

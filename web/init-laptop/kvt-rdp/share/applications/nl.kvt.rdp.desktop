@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=KVT RDP
+GenericName=Remote Desktop
+Comment=Quick FreeRDP connections to KVT servers
+Exec=kvt-rdp
+Icon=nl.kvt.rdp
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=RDP;FreeRDP;Remote;Desktop;KVT;
+StartupNotify=false

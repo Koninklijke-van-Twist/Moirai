@@ -1454,12 +1454,23 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
     if (!$isNew && ($typeKey === 'laptops' || $typeKey === 'phones')) {
         $dateChanged = trim((string) ($existing['aanschafdatum'] ?? ''))
             !== trim((string) ($sanitized['aanschafdatum'] ?? ''));
-        if ($dateChanged && !moirai_device_is_aging([
-            'aanschafdatum' => (string) ($sanitized['aanschafdatum'] ?? ''),
-            'os' => (string) ($sanitized['os'] ?? ''),
-        ])) {
-            $params['verouderd'] = 0;
-            $params['verouderd_alert_verzonden'] = 0;
+        $osChanged = trim((string) ($existing['os'] ?? ''))
+            !== trim((string) ($sanitized['os'] ?? ''));
+        if ($dateChanged || $osChanged) {
+            $isAging = moirai_device_is_aging([
+                'aanschafdatum' => (string) ($sanitized['aanschafdatum'] ?? ''),
+                'os' => (string) ($sanitized['os'] ?? ''),
+            ]);
+            $wasAging = moirai_device_is_aging([
+                'aanschafdatum' => (string) ($existing['aanschafdatum'] ?? ''),
+                'os' => (string) ($existing['os'] ?? ''),
+            ]);
+            $params['verouderd'] = $isAging ? 1 : 0;
+            if (!$isAging || !$wasAging) {
+                $params['verouderd_alert_verzonden'] = 0;
+            } else {
+                $params['verouderd_alert_verzonden'] = !empty($existing['verouderd_alert_verzonden']) ? 1 : 0;
+            }
         } else {
             $params['verouderd'] = !empty($existing['verouderd']) ? 1 : 0;
             $params['verouderd_alert_verzonden'] = !empty($existing['verouderd_alert_verzonden']) ? 1 : 0;

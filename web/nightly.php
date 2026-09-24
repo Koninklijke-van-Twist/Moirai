@@ -3,7 +3,7 @@
 /**
  * Nightly endpoint (GET).
  * Sleutels.kvt.nl GET’t dit bestand ’s nachts wanneer het bestaat.
- * Scant laptops/telefoons van ≥ 4 jaar + 10 maanden en mailt ict@kvt.nl één keer
+ * Scant laptops/telefoons van ≥ 4 jaar + 10 maanden (Linux: het dubbele) en mailt ict@kvt.nl één keer
  * (niet voor Reserve; die worden Onbeschikbaar + flagged).
  */
 

@@ -7,6 +7,7 @@ const MOIRAI_FILTER_CACHE_FILE = __DIR__ . '/data/filter_cache.json';
 const MOIRAI_UNAVAILABLE_EMAIL = '__unavailable__';
 const MOIRAI_AGING_YEARS = 4;
 const MOIRAI_AGING_MONTHS = 10;
+const MOIRAI_AGING_LINUX_MULTIPLIER = 2;
 const MOIRAI_AGING_ALERT_EMAIL = 'ict@kvt.nl';
 
 const MOIRAI_LAPTOP_FIELDS = [
@@ -1453,7 +1454,10 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
     if (!$isNew && ($typeKey === 'laptops' || $typeKey === 'phones')) {
         $dateChanged = trim((string) ($existing['aanschafdatum'] ?? ''))
             !== trim((string) ($sanitized['aanschafdatum'] ?? ''));
-        if ($dateChanged && !moirai_device_is_aging(['aanschafdatum' => (string) ($sanitized['aanschafdatum'] ?? '')])) {
+        if ($dateChanged && !moirai_device_is_aging([
+            'aanschafdatum' => (string) ($sanitized['aanschafdatum'] ?? ''),
+            'os' => (string) ($sanitized['os'] ?? ''),
+        ])) {
             $params['verouderd'] = 0;
             $params['verouderd_alert_verzonden'] = 0;
         } else {
@@ -1811,6 +1815,17 @@ function moirai_aging_type_keys(): array
     return ['laptops', 'phones'];
 }
 
+function moirai_aging_interval(array $device): DateInterval
+{
+    $interval = new DateInterval('P' . MOIRAI_AGING_YEARS . 'Y' . MOIRAI_AGING_MONTHS . 'M');
+    if (strcasecmp(trim((string) ($device['os'] ?? '')), 'Linux') === 0) {
+        $interval->y *= MOIRAI_AGING_LINUX_MULTIPLIER;
+        $interval->m *= MOIRAI_AGING_LINUX_MULTIPLIER;
+    }
+
+    return $interval;
+}
+
 function moirai_device_is_aging(array $device, ?DateTimeImmutable $today = null): bool
 {
     $purchase = trim((string) ($device['aanschafdatum'] ?? ''));
@@ -1825,9 +1840,7 @@ function moirai_device_is_aging(array $device, ?DateTimeImmutable $today = null)
     }
 
     $today ??= moirai_today();
-    $threshold = $purchasedOn->setTime(0, 0, 0)->add(new DateInterval(
-        'P' . MOIRAI_AGING_YEARS . 'Y' . MOIRAI_AGING_MONTHS . 'M'
-    ));
+    $threshold = $purchasedOn->setTime(0, 0, 0)->add(moirai_aging_interval($device));
 
     return $threshold->format('Y-m-d') <= $today->format('Y-m-d');
 }
@@ -1870,7 +1883,8 @@ function moirai_aging_lock_path(): string
 }
 
 /**
- * Nightly aging scan: flag laptops/phones aged >= 4 years + 10 months.
+ * Nightly aging scan: flag laptops/phones aged >= 4 years + 10 months
+ * (twice that when os is Linux).
  * Mails ICT once when the device is not Reserve. Reserve devices are marked
  * Unavailable without mail. Flags are persisted so reruns are idempotent.
  *

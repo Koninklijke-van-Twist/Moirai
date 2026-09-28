@@ -441,7 +441,11 @@ function auth_discover_companies_across_active_environments(int $ttlSeconds = 30
         try {
             return auth_discover_companies_via_mimir();
         } catch (Throwable $error) {
-            if (function_exists('odata_mimir_trip')) {
+            $mimirFailure = function_exists('odata_mimir_is_failure') && odata_mimir_is_failure($error);
+            if (!$mimirFailure && !(function_exists('odata_mimir_circuit_open') && odata_mimir_circuit_open())) {
+                throw $error;
+            }
+            if ($mimirFailure && function_exists('odata_mimir_trip')) {
                 odata_mimir_trip($error);
             }
             auth_rethrow_mimir_if_no_bc_credentials();

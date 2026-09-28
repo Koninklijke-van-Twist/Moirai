@@ -290,6 +290,60 @@ if (strpos(fallback_log(), 'sandbox-secret') !== false || strpos(fallback_log(),
     fail('log bevat een geheim na company-environment fallback');
 }
 
+$auth_list = [
+    'Production' => ['mode' => 'basic', 'user' => 'bcuser', 'pass' => 'bc-secret'],
+];
+$auth = $auth_list['Production'];
+odata_mimir_circuit_reset();
+$mimirBase = 'http://127.0.0.1:9';
+$callsBeforeMappedAuth = count($calls);
+$mappedAuthError = null;
+try {
+    odata_mimir_query('Hunter van Twist', 'AppResource', ['$select' => 'No'], 30);
+    fail('gemapt Sandbox-bedrijf zonder Sandbox-auth mag niet de primaire credentials gebruiken');
+} catch (Throwable $exception) {
+    $mappedAuthError = $exception;
+}
+if (!$mappedAuthError instanceof Throwable || strpos($mappedAuthError->getMessage(), 'Mímir') === false) {
+    fail('gemapt environment zonder eigen auth moet de Mímir-fout teruggeven');
+}
+if (count($calls) !== $callsBeforeMappedAuth) {
+    fail('gemapt environment zonder eigen auth mag geen BC-call doen: ' . json_encode(array_slice($calls, $callsBeforeMappedAuth)));
+}
+
+odata_mimir_circuit_reset();
+$sandboxUrl = "https://mimir.invalid/Sandbox/ODataV4/Company('Hunter%20van%20Twist')/AppWerkorders?\$select=No";
+$callsBeforeExplicit = count($calls);
+$explicitAuthError = null;
+try {
+    odata_get_all($sandboxUrl, $auth, 12);
+    fail('expliciete Sandbox-URL zonder Sandbox-auth mag niet terugvallen op $auth');
+} catch (Throwable $exception) {
+    $explicitAuthError = $exception;
+}
+if (!$explicitAuthError instanceof Throwable || strpos($explicitAuthError->getMessage(), 'Mímir') === false) {
+    fail('expliciete URL zonder auth moet de Mímir-fout teruggeven');
+}
+if (count($calls) !== $callsBeforeExplicit) {
+    fail('expliciete URL zonder auth mag geen BC-call doen');
+}
+
+odata_mimir_circuit_reset();
+$callsBeforeFetchAuth = count($calls);
+$fetchAuthError = null;
+try {
+    odata_mimir_fetch_all($sandboxUrl, 12);
+    fail('fetch_all met expliciete Sandbox-URL mag niet terugvallen op andere credentials');
+} catch (Throwable $exception) {
+    $fetchAuthError = $exception;
+}
+if (!$fetchAuthError instanceof Throwable || strpos($fetchAuthError->getMessage(), 'Mímir') === false) {
+    fail('fetch_all zonder Sandbox-auth moet de Mímir-fout teruggeven');
+}
+if (count($calls) !== $callsBeforeFetchAuth) {
+    fail('fetch_all zonder Sandbox-auth mag geen BC-call doen');
+}
+
 $loggedBeforeRethrow = fallback_count();
 $callsBeforeRethrow = count($calls);
 odata_mimir_circuit_reset();

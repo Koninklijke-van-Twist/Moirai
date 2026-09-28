@@ -446,8 +446,30 @@ function odata_bc_auth_for_company_env(?string $env, array $passed): ?array
 }
 
 /**
- * Expliciet environment in de URL: alleen $auth_list voor dat environment.
- * /mimir/ en een onbekend bedrijf mogen terugvallen op $auth / de primaire environment.
+ * Eigen $auth_list-entry wint. Zonder lijst, of als dit de primaire environment is,
+ * geldt $auth. Een ander environment met gevulde lijst zonder entry blijft null.
+ *
+ * @return array<string, mixed>|null
+ */
+function odata_bc_auth_for_named_environment(string $env, array $passed): ?array
+{
+    $own = odata_bc_auth_for_environment($env);
+    if ($own !== null) {
+        return $own;
+    }
+    global $auth_list;
+    $listMissing = !isset($auth_list) || !is_array($auth_list) || $auth_list === [];
+    $primary = odata_bc_environment();
+    $isPrimary = $primary !== null && strcasecmp($env, $primary) === 0;
+    if ($listMissing || $isPrimary) {
+        return odata_bc_auth_for_fallback($passed);
+    }
+    return null;
+}
+
+/**
+ * Expliciet environment: eigen entry, anders $auth als de lijst leeg is of het de primaire is.
+ * Een ander environment zonder entry weigert. /mimir/ valt terug op $auth.
  *
  * @return array<string, mixed>
  */
@@ -455,7 +477,7 @@ function odata_bc_auth_for_direct_url(string $url, array $passed): array
 {
     $explicit = odata_bc_explicit_environment_from_url($url);
     if ($explicit !== null) {
-        $auth = odata_bc_auth_for_environment($explicit);
+        $auth = odata_bc_auth_for_named_environment($explicit, $passed);
     } else {
         $env = odata_bc_environment_from_odata_url($url);
         $auth = odata_bc_auth_for_company_env($env, $passed);
@@ -911,7 +933,7 @@ function odata_direct_query(string $company, string $table, array $odataQuery, i
     $mappedEnv = odata_bc_mapped_environment($company);
     if ($mappedEnv !== null) {
         $env = $mappedEnv;
-        $auth = odata_bc_auth_for_environment($mappedEnv);
+        $auth = odata_bc_auth_for_named_environment($mappedEnv, []);
     } else {
         $env = odata_bc_environment();
         $auth = $env !== null ? odata_bc_auth_for_company_env($env, []) : null;

@@ -344,6 +344,60 @@ if (count($calls) !== $callsBeforeFetchAuth) {
     fail('fetch_all zonder Sandbox-auth mag geen BC-call doen');
 }
 
+$auth = ['mode' => 'basic', 'user' => 'bcuser', 'pass' => 'bc-secret'];
+unset($auth_list);
+$environment = 'Production';
+$baseUrl = 'https://bc.example:7148/';
+odata_mimir_circuit_reset();
+$mimirBase = 'http://127.0.0.1:9';
+$callsBeforePrimaryOnly = count($calls);
+$primaryOnlyUrl = "https://mimir.invalid/Production/ODataV4/Company('KVT%20Gas')/AppWerkorders?\$select=No";
+$primaryOnlyRows = odata_get_all($primaryOnlyUrl, $auth, 12);
+$primaryOnlyCall = $calls[$callsBeforePrimaryOnly] ?? null;
+if (($primaryOnlyRows[0]['No'] ?? '') !== 'WO-1'
+    || !is_array($primaryOnlyCall)
+    || ($primaryOnlyCall['url'] ?? '') !== "https://bc.example:7148/Production/ODataV4/Company('KVT%20Gas')/AppWerkorders?\$select=No"
+    || ($primaryOnlyCall['user'] ?? '') !== 'bcuser'
+) {
+    fail('URL met /Production/ zonder $auth_list moet $auth gebruiken: ' . json_encode($primaryOnlyCall));
+}
+
+$auth_list = [
+    'Sandbox' => ['mode' => 'basic', 'user' => 'sandbox-user', 'pass' => 'sandbox-secret'],
+];
+$environment = 'Production';
+odata_mimir_circuit_reset();
+$callsBeforePrimaryGap = count($calls);
+$primaryGapRows = odata_get_all($primaryOnlyUrl, $auth, 12);
+$primaryGapCall = $calls[$callsBeforePrimaryGap] ?? null;
+if (($primaryGapRows[0]['No'] ?? '') !== 'WO-1'
+    || !is_array($primaryGapCall)
+    || ($primaryGapCall['url'] ?? '') !== "https://bc.example:7148/Production/ODataV4/Company('KVT%20Gas')/AppWerkorders?\$select=No"
+    || ($primaryGapCall['user'] ?? '') !== 'bcuser'
+) {
+    fail('primaire /Production/-URL zonder eigen entry moet $auth gebruiken: ' . json_encode($primaryGapCall));
+}
+
+$auth_list = [
+    'Production' => ['mode' => 'basic', 'user' => 'bcuser', 'pass' => 'bc-secret'],
+];
+$auth = $auth_list['Production'];
+odata_mimir_circuit_reset();
+$callsBeforeOtherEnv = count($calls);
+$otherEnvError = null;
+try {
+    odata_get_all($sandboxUrl, $auth, 12);
+    fail('/Sandbox/ zonder Sandbox-entry moet blijven weigeren');
+} catch (Throwable $exception) {
+    $otherEnvError = $exception;
+}
+if (!$otherEnvError instanceof Throwable || strpos($otherEnvError->getMessage(), 'Mímir') === false) {
+    fail('/Sandbox/ zonder eigen entry moet de Mímir-fout teruggeven');
+}
+if (count($calls) !== $callsBeforeOtherEnv) {
+    fail('/Sandbox/ zonder eigen entry mag geen BC-call doen');
+}
+
 $loggedBeforeRethrow = fallback_count();
 $callsBeforeRethrow = count($calls);
 odata_mimir_circuit_reset();

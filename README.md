@@ -36,7 +36,7 @@ $mimirApi  = 'mimir_…';
 $mimirBase = 'https://sleutels.kvt.nl/mimir/api';
 ```
 
-Met `$mimirApi` gezet zijn `$auth_list`, `$environment`, `$baseUrl` en `$auth` ongebruikt voor Business Central — company-discovery en alle OData-fetches (`odata_get_all`) lopen via Mímir. Zonder `$mimirApi` blijft het bestaande directe BC-pad ongewijzigd.
+Met `$mimirApi` gezet proberen company-discovery en alle OData-fetches (`odata_get_all`, `odata_mimir_query`, `odata_mimir_fetch_all`) eerst Mímir. Mislukt die aanroep (verbinding/timeout, non-2xx, ongeldige JSON of een Mímir-foutpayload), dan haalt Moirai dezelfde data op via het directe Business Central-pad (`$baseUrl`, `$auth` / `$auth_list`, `$environment`, lokale odata-filecache) en slaat Mímir voor de rest van dat PHP-proces over. Laat die BC-credentials in `auth.php` staan naast `$mimirApi`; ontbreken ze, dan komt de oorspronkelijke Mímir-fout terug. Dat geldt voor webverzoeken én voor CLI (`nightly.php`, `download_enroll.php` en andere scripts die `auth.php` laden). Zonder `$mimirApi` blijft het bestaande directe BC-pad ongewijzigd.
 
 **max_age-beleid**
 
@@ -46,8 +46,8 @@ Met `$mimirApi` gezet zijn `$auth_list`, `$environment`, `$baseUrl` en `$auth` o
 | `hourly.php` | niet aanwezig in Moirai |
 | UI / on-demand | bestaande TTLs — default **300** (`odata_get_all`) |
 
-Tim moet `$mimirApi` (en optioneel `$mimirBase`) lokaal/op de server zetten; `auth.php` wordt niet gecommit. Zie [Mímir Implementatie](https://wiki.kvt.nl/books/mimir/page/implementatie).
+Tim moet `$mimirApi` (en optioneel `$mimirBase`) lokaal/op de server zetten, en de BC-credentials daar laten staan als fallback. `auth.php` wordt niet gecommit. Zie [Mímir Implementatie](https://wiki.kvt.nl/books/mimir/page/implementatie).
 
 ## auth.php
 
-Geen `auth.php` in deze repository (staat in `.gitignore`). Lokaal/op de server de Mímir-sleutel zetten zoals hierboven; legacy BC-credentials alleen nodig zonder `$mimirApi`. Graph-credentials blijven nodig voor gebruikerslijsten.
+Geen `auth.php` in deze repository (staat in `.gitignore`). Lokaal/op de server de Mímir-sleutel zetten zoals hierboven, en `$baseUrl`, `$auth_list`, `$environment` en `$auth` laten staan naast `$mimirApi` zodat de directe BC-fallback werkt als Mímir uitvalt (web, `nightly.php` en `download_enroll.php`). Graph-credentials blijven nodig voor gebruikerslijsten. Zie `web/auth.example.php`.

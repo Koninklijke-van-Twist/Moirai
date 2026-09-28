@@ -18,3 +18,17 @@ $apiKeys = [
 // $graphCredentials = ['tenantId' => '', 'clientId' => '', 'clientSecret' => ''];
 // $ictUsers = ['ict@kvt.nl'];
 // $allowedUsers = ['ict@kvt.nl'];
+
+// Mímir (optioneel). Laat het BC-blok hieronder staan naast $mimirApi:
+// bij een Mímir-storing valt Moirai terug op die directe Business Central-credentials
+// (web, nightly.php en download_enroll.php). Zonder $mimirApi wordt alleen het BC-blok gebruikt.
+// $mimirApi  = 'mimir_…';
+// $mimirBase = 'https://sleutels.kvt.nl/mimir/api';
+
+// Business Central — verplicht als fallback zolang $mimirApi gezet is, en het enige pad zonder $mimirApi.
+// $auth_list = [
+//     'Production' => ['mode' => 'basic', 'user' => 'USERNAME', 'pass' => 'PASSWORD'],
+// ];
+// $environment = 'Production';
+// $auth = $auth_list[$environment];
+// $baseUrl = 'https://my-bc-domain.com:7148/';

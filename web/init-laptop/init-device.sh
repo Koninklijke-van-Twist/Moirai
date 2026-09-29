@@ -6,6 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENROLL_SCRIPT="$SCRIPT_DIR/enroll.sh"
 KVT_INSTALL="$SCRIPT_DIR/KVT-Energise/install.sh"
 KVT_EFFECT_ID="kwin6_effect_kvt_energise"
+CLICK_TWEEN_DIR="$SCRIPT_DIR/kwin-click-tween"
+CLICK_TWEEN_INSTALL="$CLICK_TWEEN_DIR/install.sh"
+CLICK_TWEEN_EFFECT_ID="kwin_effect_clicktween"
+CLICK_TWEEN_PLUGIN="/usr/lib/qt6/plugins/kwin/effects/plugins/kwin_effect_clicktween.so"
+CLICK_TWEEN_CONFIG="/usr/lib/qt6/plugins/kwin/effects/configs/kwin_clicktween_config.so"
 BACKGROUND_SRC="$SCRIPT_DIR/backgr_1.png"
 LOGO_SRC="$SCRIPT_DIR/kvtlogo.png"
 BOOTANIM_INSTALL="$SCRIPT_DIR/bootanimation/install.sh"
@@ -195,6 +200,52 @@ install_kvt_energise() {
 	run_as_user bash "$KVT_INSTALL"
 	log "KVT Energise is geinstalleerd."
 	activate_kvt_open_close_animation
+}
+
+ensure_click_tween_build_deps() {
+	command -v pacman >/dev/null 2>&1 || die "pacman niet gevonden; kan Click Tween-buildpakketten niet installeren."
+
+	log "Installeer Click Tween-buildafhankelijkheden..."
+	pacman -S --needed --noconfirm \
+		gcc pkgconf kwin qt6-base qt6-declarative \
+		kcoreaddons kconfig kcmutils kwindowsystem \
+		wayland libepoxy libdrm
+}
+
+install_click_tween() {
+	if [ -z "$TARGET_USER" ]; then
+		warn "Sla Click Tween over: geen desktop-gebruiker."
+		return
+	fi
+
+	[ -f "$CLICK_TWEEN_INSTALL" ] || die "Click Tween install-script niet gevonden: $CLICK_TWEEN_INSTALL"
+
+	ensure_click_tween_build_deps
+
+	# install.sh weigert root en vraagt zelf sudo. Bouw daarom als gebruiker
+	# en plaats de plugins hier als root (init-device draait al met sudo).
+	log "Bouw Click Tween voor gebruiker $TARGET_USER..."
+	run_as_user bash "$CLICK_TWEEN_INSTALL" --build-only
+
+	local plugin_src="$CLICK_TWEEN_DIR/build/kwin_effect_clicktween.so"
+	local config_src="$CLICK_TWEEN_DIR/build/kwin_clicktween_config.so"
+	[ -f "$plugin_src" ] || die "Click Tween-plugin niet gebouwd: $plugin_src"
+	[ -f "$config_src" ] || die "Click Tween-config niet gebouwd: $config_src"
+
+	log "Installeer Click Tween system-wide..."
+	install -Dm755 "$plugin_src" "$CLICK_TWEEN_PLUGIN"
+	install -Dm755 "$config_src" "$CLICK_TWEEN_CONFIG"
+
+	kwin_write_plugin "$CLICK_TWEEN_EFFECT_ID" true
+	if result="$(run_as_user qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded "$CLICK_TWEEN_EFFECT_ID" 2>/dev/null || true)" \
+		&& [ "$result" = "true" ]; then
+		log "Click Tween is geinstalleerd en actief."
+	elif result="$(run_as_user qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.loadEffect "$CLICK_TWEEN_EFFECT_ID" 2>/dev/null || true)" \
+		&& [ "$result" = "true" ]; then
+		log "Click Tween is geinstalleerd en actief."
+	else
+		log "Click Tween is geinstalleerd en ingeschakeld. Meld af/aan om het effect te laden."
+	fi
 }
 
 current_sddm_theme() {
@@ -557,6 +608,7 @@ main() {
 	run_enroll
 	install_kvt_rdp
 	install_kvt_energise
+	install_click_tween
 	set_login_background
 	set_launcher_icons
 	install_boot_and_splash

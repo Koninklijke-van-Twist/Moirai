@@ -51,7 +51,7 @@ function moirai_init_laptop_skip_entry(string $relative): bool
     }
 
     foreach (explode('/', $relative) as $part) {
-        if ($part === '' || $part === '.' || $part === '..' || $part === '.htaccess') {
+        if ($part === '' || $part === '.' || $part === '..' || $part === '.htaccess' || $part === '.gitignore' || $part === 'build') {
             return true;
         }
     }

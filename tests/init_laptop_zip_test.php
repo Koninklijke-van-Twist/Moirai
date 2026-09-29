@@ -45,7 +45,7 @@ function folder_files(string $root): array
             continue;
         }
         $relative = str_replace('\\', '/', substr($item->getPathname(), strlen($root) + 1));
-        if (basename($relative) === '.htaccess') {
+        if (moirai_init_laptop_skip_entry($relative)) {
             continue;
         }
         $files[$relative] = $item->getPathname();
@@ -93,6 +93,7 @@ foreach ([
     'kvt-rdp',
     'kvt-rds-connect',
     'KVT-Energise',
+    'kwin-click-tween',
     'enroll.sh',
     'hosts.sh',
     'init-device.sh',

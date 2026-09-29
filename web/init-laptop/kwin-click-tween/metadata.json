@@ -1,0 +1,11 @@
+{
+    "KPlugin": {
+        "Id": "clicktween",
+        "Name": "Click Tween",
+        "Description": "Shrink the pointer while holding the left or right mouse button",
+        "Category": "Appearance",
+        "License": "GPL-2.0-or-later",
+        "EnabledByDefault": false
+    },
+    "X-KDE-ConfigModule": "kwin_clicktween_config"
+}

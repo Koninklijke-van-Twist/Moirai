@@ -10,6 +10,8 @@ $isAdmin = moirai_is_admin();
 $userEmail = (string) ($_SESSION['user']['email'] ?? '');
 $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
 $todayIso = date('Y-m-d');
+// Vóór de HTML-output: het token wordt in de (heropende) sessie bewaard.
+$budgetCsrf = $isAdmin ? moirai_budget_csrf_token() : '';
 
 $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.badge.condition', 'moirai.unnamed', 'moirai.filter.all',
@@ -713,6 +715,9 @@ $moiraiJsKeys = [
             <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.phones')) ?></button>
             <button type="button" class="tab" data-tab="accessory" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.accessories')) ?></button>
             <button type="button" class="tab" data-tab="simcard" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.simcards')) ?></button>
+            <?php if ($isAdmin): ?>
+            <button type="button" class="tab" data-tab="budget" role="tab" aria-selected="false"><?= moirai_h(LOC('budget.tab')) ?></button>
+            <?php endif; ?>
         </div>
 
         <div class="attr-filters" id="attr-filters"></div>
@@ -739,6 +744,7 @@ $moiraiJsKeys = [
         <div class="loader" id="list-loader"><?= moirai_h(LOC('moirai.loader.devices')) ?></div>
         <div class="device-list" id="device-list" hidden></div>
         <div class="empty-state" id="empty-state" hidden><?= moirai_h(LOC('moirai.empty.devices')) ?></div>
+        <?php require __DIR__ . '/telefoonbudget_ui.php'; ?>
     </main>
 </div>
 
@@ -1479,6 +1485,12 @@ $moiraiJsKeys = [
         modalForm.hidden = true;
         modalTitle.textContent = deviceTitle(device);
 
+        if (isAdmin && state.tab === 'phone' && window.MoiraiBudget) {
+            var budgetSlot = document.createElement('div');
+            modalView.appendChild(budgetSlot);
+            window.MoiraiBudget.renderPhoneLink(budgetSlot, String(device.imei || device.id || '').trim());
+        }
+
         modalActions.innerHTML = '';
         var historyBtn = document.createElement('button');
         historyBtn.type = 'button';
@@ -1943,6 +1955,24 @@ $moiraiJsKeys = [
             tab.classList.toggle('is-active', isActive);
             tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
         });
+
+        var mainPanel = document.querySelector('main.panel');
+        if (type === 'budget') {
+            if (!window.MoiraiBudget) {
+                return Promise.resolve();
+            }
+            listRequestId++;
+            state.tab = 'budget';
+            mainPanel.classList.add('is-budget');
+            window.MoiraiBudget.activate(true);
+            return Promise.resolve();
+        }
+        if (mainPanel.classList.contains('is-budget')) {
+            mainPanel.classList.remove('is-budget');
+            if (window.MoiraiBudget) {
+                window.MoiraiBudget.activate(false);
+            }
+        }
 
         if (state.tab === type) {
             return Promise.resolve();

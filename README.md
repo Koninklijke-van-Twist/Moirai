@@ -9,9 +9,35 @@ ICT-apparaatbeheer op sleutels.kvt.nl: laptops, telefoons, accessoires en SIM-ka
   - SIM-kaarten (`simcards`): code en telefoonnummer uniek (genormaliseerd, unieke DB-indexen); geen labels. Tabel en indexen worden idempotent aangemaakt bij de eerste DB-connectie.
 - `web/odata.php` — OData-client, lokale filecache-widget, optionele Mímir-proxy
 - `web/auth_helper.php` — company-discovery / environment-helpers (BC of Mímir)
+- `web/moirai_budget.php` — telefoonbudget (rekenregels, aankopen, import); UI in `web/telefoonbudget_ui.php` + `web/js/telefoonbudget.js`
 - `web/localization.php` — meertalige UI-teksten
 - `web/nightly.php` — nightly aging-alerts (SQLite/mail; geen OData-fetch)
 - `web/auth.php` — credentials (niet in git, lokaal/server aanwezig)
+
+## Telefoonbudget (alleen ICT-admins)
+
+Tabblad **Telefoonbudget** (`web/telefoonbudget_ui.php`, `web/js/telefoonbudget.js`, API `web/budget_api.php`, logica `web/moirai_budget.php`). Alle bedragen worden in **centen** (integers) opgeslagen en berekend.
+
+- Tabellen `budget_settings`, `budget_people` (e-mail = sleutel, indiensttreding) en `budget_purchases` (AUTOINCREMENT-id, prijs, datum, eigen bijdrage, status, telefoon, notitie, gekoppelde telefoon-IMEI, import-hash). Idempotente migratie `moirai_migrate_budget_tables()` bij de eerste DB-connectie.
+- Rechten: elke actie vereist `moirai_is_admin()`; schrijfacties vereisen POST + `X-CSRF-Token` (sessietoken, `moirai_budget_csrf_token()`).
+
+**Rekenregels** (instelbaar via de knop *Instellingen* of constanten in `moirai_budget.php`):
+
+| Regel | Standaard | Om te zetten |
+| --- | --- | --- |
+| Startbudget vanaf indiensttreding | € 600 | instelling `start_cents` |
+| Opbouw per hele maand na de laatste aankoop | € 25 | instelling `monthly_cents` |
+| Hele maand | telt zodra de dag-van-de-maand van de aankoop is bereikt (31 jan → 28/29 feb) | `moirai_budget_months_between()` |
+| Opbouw vóór de eerste aankoop | nee (budget blijft € 600) | `MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE` |
+| Maximum budget | geen (0) | instelling `max_cents` |
+| Onbevestigde aankopen tellen mee | ja (gemarkeerd in de lijst) | `MOIRAI_BUDGET_COUNT_UNCONFIRMED` |
+| Huidige waarde telefoon (alleen informatief) | prijs laatste aankoop − € 25 per hele maand, min. 0 | instelling `depreciation_cents` |
+
+Een aankoop trekt de prijs af; het budget komt niet onder 0 en het tekort wordt als eigen bijdrage bij de aankoop opgeslagen. Elke wijziging (toevoegen, aanpassen, (on)bevestigen, verwijderen, indiensttreding of instellingen wijzigen) herberekent de hele tijdlijn.
+
+**Excel-import** (knop *Excel importeren*): `.xls` (BIFF8) en `.xlsx`, gelezen door `web/lib/moirai_spreadsheet.php` (geen externe library). Verwachte kolommen: `datum`, `persoon`, `soort telefoon` (→ Telefoon), `bedrag`, optioneel `status` en een naamloze/`notitie`-kolom (→ Notitie). Preview toont nieuwe/al geïmporteerde/foute regels en per persoon de koppeling (zeker / controleer / niet herkend). Personen zonder indiensttreding krijgen één voor één een modal; pas daarna wordt opgeslagen. Idempotent via `import_hash` (inhoud + volgnummer van identieke regels). Geïmporteerde aankopen zijn **Bevestigd**, tenzij een `status`-kolom "onbevestigd" zegt. Het echte Excel-bestand hoort niet in git; tests gebruiken `tests/fixtures/telefoonbudget_fictief.xls` (verzonnen).
+
+Tests: `php tests/telefoonbudget_test.php`.
 
 ## Lokaal draaien
 

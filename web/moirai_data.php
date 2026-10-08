@@ -113,6 +113,25 @@ const MOIRAI_ACCESSORY_FILTER_FIELDS = [
     'fysieke_staat',
 ];
 
+const MOIRAI_SIMCARD_FIELDS = [
+    'code',
+    'telefoonnummer',
+    'fysieke_staat',
+];
+
+const MOIRAI_SIMCARD_FILTER_FIELDS = [
+    'fysieke_staat',
+];
+
+// SIM-kaarten krijgen geen label: een label past niet op een SIM.
+const MOIRAI_LABEL_TYPE_KEYS = [
+    'laptops',
+    'phones',
+    'accessories',
+];
+
+const MOIRAI_PHONE_DEFAULT_COUNTRY_CODE = '31';
+
 function moirai_is_admin(): bool
 {
     $email = (string) ($_SESSION['user']['email'] ?? '');
@@ -346,6 +365,13 @@ function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool 
         return;
     }
 
+    if ($typeKey === 'simcards') {
+        $sanitized['code'] = moirai_format_simcard_code((string) ($sanitized['code'] ?? ''));
+        $sanitized['telefoonnummer'] = moirai_format_phone_number_display((string) ($sanitized['telefoonnummer'] ?? ''));
+        $sanitized['telefoonnummer_norm'] = moirai_normalize_phone_number($sanitized['telefoonnummer']);
+        return;
+    }
+
     if ($typeKey === 'laptops') {
         $sanitized['ram'] = moirai_validate_ram($sanitized['ram']);
         $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
@@ -359,6 +385,179 @@ function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool 
     $sanitized['opslag'] = moirai_validate_opslag($sanitized['opslag']);
     $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'], $isNew);
     $sanitized['os'] = moirai_normalize_phone_os($sanitized['os']);
+}
+
+/**
+ * Leesbare weergave van een telefoonnummer: zoals ingevoerd, alleen getrimd en
+ * met enkele spaties.
+ */
+function moirai_format_phone_number_display(string $value): string
+{
+    return trim((string) preg_replace('/\s+/u', ' ', $value));
+}
+
+/**
+ * Canonieke vorm (E.164, bijv. +31612345678) voor de uniciteitscheck.
+ * Spaties, streepjes, punten, slashes en haakjes tellen niet mee.
+ * 06…, 0031 6…, +31 6…, +31 (0)6… en 31 6… worden allemaal +316….
+ * Een los Nederlands abonneenummer van 9 cijfers (6…) krijgt +31.
+ */
+function moirai_normalize_phone_number(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+
+    $compact = (string) preg_replace('/[\s\-\.\/\x{2010}-\x{2015}]+/u', '', $value);
+    // "+31 (0)6 …": de (0) is de nationale trunk-prefix en valt weg.
+    $compact = (string) preg_replace('/^(\+|00)(\d{1,3})\(0\)/', '$1$2', $compact);
+    $compact = str_replace(['(', ')'], '', $compact);
+
+    if (!preg_match('/^\+?\d+$/', $compact)) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.phone_invalid'));
+    }
+
+    $cc = MOIRAI_PHONE_DEFAULT_COUNTRY_CODE;
+    if (str_starts_with($compact, '+')) {
+        $digits = substr($compact, 1);
+    } elseif (str_starts_with($compact, '00')) {
+        $digits = substr($compact, 2);
+    } elseif (str_starts_with($compact, '0')) {
+        $digits = $cc . substr($compact, 1);
+    } elseif (str_starts_with($compact, $cc) && strlen($compact) === strlen($cc) + 9) {
+        $digits = $compact;
+    } elseif (strlen($compact) === 9) {
+        $digits = $cc . $compact;
+    } else {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.phone_invalid'));
+    }
+
+    // Een losse nationale 0 na de landcode (+310612…) hoort er niet in.
+    if (str_starts_with($digits, $cc . '0')) {
+        $digits = $cc . substr($digits, strlen($cc) + 1);
+    }
+
+    if ($digits === '' || $digits[0] === '0' || strlen($digits) < 8 || strlen($digits) > 15) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.phone_invalid'));
+    }
+    if (str_starts_with($digits, $cc)) {
+        // NL: 9 cijfers na +31; M2M-/data-SIM's (097…) hebben er 11.
+        $national = substr($digits, strlen($cc));
+        $validNl = strlen($national) === 9 || (str_starts_with($national, '97') && strlen($national) === 11);
+        if (!$validNl) {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.phone_invalid'));
+        }
+    }
+
+    return '+' . $digits;
+}
+
+function moirai_normalize_phone_number_display(string $value): string
+{
+    try {
+        return moirai_normalize_phone_number($value);
+    } catch (InvalidArgumentException) {
+        return '';
+    }
+}
+
+/**
+ * Nationale schrijfwijze (0612345678) van een canoniek NL-nummer, voor zoeken.
+ */
+function moirai_phone_number_national(string $normalized): string
+{
+    $prefix = '+' . MOIRAI_PHONE_DEFAULT_COUNTRY_CODE;
+    if (str_starts_with($normalized, $prefix)) {
+        return '0' . substr($normalized, strlen($prefix));
+    }
+
+    return '';
+}
+
+function moirai_format_simcard_code(string $value): string
+{
+    return trim((string) preg_replace('/\s+/u', ' ', $value));
+}
+
+/**
+ * Vergelijkingsvorm van een SIM-code: hoofdletterongevoelig, zonder spaties of streepjes.
+ */
+function moirai_normalize_simcard_code(string $value): string
+{
+    return strtoupper((string) preg_replace('/[\s\-]+/u', '', $value));
+}
+
+function moirai_type_can_print_label(string $type): bool
+{
+    $typeKey = moirai_type_key($type);
+
+    return $typeKey !== null && in_array($typeKey, MOIRAI_LABEL_TYPE_KEYS, true);
+}
+
+function moirai_assert_type_can_print_label(string $type): void
+{
+    $typeKey = moirai_type_key($type);
+    if ($typeKey === null) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
+    }
+    if (!moirai_type_can_print_label($typeKey)) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.print_not_supported'));
+    }
+}
+
+/**
+ * Nederlandse foutmelding als code of telefoonnummer al bij een andere SIM-kaart hoort.
+ */
+function moirai_simcard_duplicate_error(PDO $pdo, string $code, string $phoneNorm, string $excludeKey = ''): ?string
+{
+    $codeNorm = moirai_normalize_simcard_code($code);
+    if ($codeNorm !== '') {
+        $stmt = $pdo->prepare('SELECT code FROM simcards WHERE code_norm = :code_norm AND code != :exclude LIMIT 1');
+        $stmt->execute(['code_norm' => $codeNorm, 'exclude' => $excludeKey]);
+        $other = $stmt->fetchColumn();
+        if ($other !== false) {
+            return moirai_loc('moirai.error.sim_code_duplicate', (string) $other);
+        }
+    }
+
+    if ($phoneNorm !== '') {
+        $stmt = $pdo->prepare(
+            'SELECT code, telefoonnummer FROM simcards WHERE telefoonnummer_norm = :norm AND code != :exclude LIMIT 1'
+        );
+        $stmt->execute(['norm' => $phoneNorm, 'exclude' => $excludeKey]);
+        $row = $stmt->fetch();
+        if (is_array($row)) {
+            return moirai_loc(
+                'moirai.error.phone_duplicate',
+                (string) ($row['telefoonnummer'] ?? $phoneNorm),
+                (string) ($row['code'] ?? '')
+            );
+        }
+    }
+
+    return null;
+}
+
+function moirai_unique_violation_message(string $typeKey, array $params, string $excludeKey = ''): string
+{
+    if ($typeKey === 'simcards') {
+        try {
+            $message = moirai_simcard_duplicate_error(
+                moirai_db(),
+                (string) ($params['code'] ?? ''),
+                (string) ($params['telefoonnummer_norm'] ?? ''),
+                $excludeKey
+            );
+            if ($message !== null) {
+                return $message;
+            }
+        } catch (Throwable) {
+            // Val terug op de generieke melding hieronder.
+        }
+    }
+
+    return moirai_duplicate_key_message($typeKey);
 }
 
 function moirai_persist_device_assignment(string $type, array $device): array
@@ -430,13 +629,14 @@ function moirai_type_key(string $type): ?string
         'laptop', 'laptops' => 'laptops',
         'phone', 'phones', 'telefoon', 'telefoons' => 'phones',
         'accessory', 'accessories', 'accessoire', 'accessoires' => 'accessories',
+        'simcard', 'simcards', 'sim', 'sims', 'simkaart', 'simkaarten', 'sim-kaart', 'sim-kaarten' => 'simcards',
         default => null,
     };
 }
 
 function moirai_known_type_keys(): array
 {
-    return ['laptops', 'phones', 'accessories'];
+    return ['laptops', 'phones', 'accessories', 'simcards'];
 }
 
 function moirai_public_type(string $typeKey): string
@@ -445,6 +645,7 @@ function moirai_public_type(string $typeKey): string
         'laptops' => 'laptop',
         'phones' => 'phone',
         'accessories' => 'accessory',
+        'simcards' => 'simcard',
         default => $typeKey,
     };
 }
@@ -455,6 +656,7 @@ function moirai_type_short_code(string $typeKey): string
         'laptops' => 'l',
         'phones' => 'p',
         'accessories' => 'a',
+        'simcards' => 's',
         default => '',
     };
 }
@@ -465,6 +667,7 @@ function moirai_type_from_short_code(string $short): ?string
         'l' => 'laptop',
         'p' => 'phone',
         'a' => 'accessory',
+        's' => 'simcard',
         default => null,
     };
 }
@@ -475,6 +678,7 @@ function moirai_table_name(string $typeKey): string
         'laptops' => 'laptops',
         'phones' => 'phones',
         'accessories' => 'accessories',
+        'simcards' => 'simcards',
         default => throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type')),
     };
 }
@@ -485,6 +689,7 @@ function moirai_device_key_field(string $typeKey): string
         'laptops' => 'serienummer',
         'phones' => 'imei',
         'accessories' => 'accessory_id',
+        'simcards' => 'code',
         default => throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type')),
     };
 }
@@ -495,6 +700,7 @@ function moirai_fields_for_type(string $typeKey): array
         'laptops' => MOIRAI_LAPTOP_FIELDS,
         'phones' => MOIRAI_PHONE_FIELDS,
         'accessories' => MOIRAI_ACCESSORY_FIELDS,
+        'simcards' => MOIRAI_SIMCARD_FIELDS,
         default => [],
     };
 }
@@ -504,6 +710,7 @@ function moirai_duplicate_key_message(string $typeKey): string
     return match ($typeKey) {
         'laptops' => moirai_loc('moirai.error.serial_duplicate'),
         'phones' => moirai_loc('moirai.error.imei_duplicate'),
+        'simcards' => moirai_loc('moirai.error.sim_duplicate'),
         default => moirai_loc('moirai.error.save_failed'),
     };
 }
@@ -648,8 +855,36 @@ function moirai_init_schema(PDO $pdo): void
         )
     ");
 
+    moirai_migrate_simcards_table($pdo);
+
     moirai_migrate_laptop_os_column($pdo);
     moirai_migrate_legacy_device_values($pdo);
+}
+
+/**
+ * SIM-kaarten: code en telefoonnummer zijn uniek. De database dwingt dat af via
+ * unieke indexen op de genormaliseerde kolommen (code_norm, telefoonnummer_norm).
+ * Idempotent: draait bij elke DB-connectie, net als de andere schema-stappen.
+ */
+function moirai_migrate_simcards_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS simcards (
+            code                TEXT PRIMARY KEY,
+            code_norm           TEXT NOT NULL,
+            telefoonnummer      TEXT NOT NULL DEFAULT '',
+            telefoonnummer_norm TEXT NOT NULL,
+            fysieke_staat       TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "',
+            uitgegeven_user_id  TEXT,
+            uitgegeven_naam     TEXT,
+            uitgegeven_email    TEXT,
+            uitgegeven_sinds    TEXT,
+            historie_json       TEXT NOT NULL DEFAULT '[]',
+            qr_geldig           INTEGER NOT NULL DEFAULT 0
+        )
+    ");
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_code_norm_unique ON simcards (code_norm)');
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_telefoonnummer_norm_unique ON simcards (telefoonnummer_norm)');
 }
 
 function moirai_migrate_laptop_os_column(PDO $pdo): void
@@ -826,6 +1061,7 @@ function moirai_filter_fields_for_type(string $typeKey): array
         'laptops' => MOIRAI_LAPTOP_FILTER_FIELDS,
         'phones' => MOIRAI_PHONE_FILTER_FIELDS,
         'accessories' => MOIRAI_ACCESSORY_FILTER_FIELDS,
+        'simcards' => MOIRAI_SIMCARD_FILTER_FIELDS,
         default => [],
     };
 }
@@ -1174,15 +1410,20 @@ function moirai_row_to_device(array $row, string $typeKey): array
     $device = [
         'id' => (string) ($row[$keyField] ?? ''),
         $keyField => (string) ($row[$keyField] ?? ''),
-        'naam' => $typeKey === 'accessories' ? $naam : $model,
+        'naam' => match ($typeKey) {
+            'accessories' => $naam,
+            'simcards' => trim((string) ($row['telefoonnummer'] ?? '')),
+            default => $model,
+        },
         'modelnummer' => $typeKey === 'accessories' ? $modelnummer : '',
         'aanschafdatum' => (string) ($row['aanschafdatum'] ?? ''),
         'uitgegeven_aan' => $uitgegeven,
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
         'historie_uitgegeven' => $historie,
         'qr_geldig' => ((int) ($row['qr_geldig'] ?? 0)) === 1,
-        'verouderd' => $typeKey !== 'accessories' && ((int) ($row['verouderd'] ?? 0)) === 1,
-        'verouderd_alert_verzonden' => $typeKey !== 'accessories' && ((int) ($row['verouderd_alert_verzonden'] ?? 0)) === 1,
+        'verouderd' => in_array($typeKey, moirai_aging_type_keys(), true) && ((int) ($row['verouderd'] ?? 0)) === 1,
+        'verouderd_alert_verzonden' => in_array($typeKey, moirai_aging_type_keys(), true)
+            && ((int) ($row['verouderd_alert_verzonden'] ?? 0)) === 1,
     ];
 
     if ($typeKey === 'laptops') {
@@ -1200,6 +1441,9 @@ function moirai_row_to_device(array $row, string $typeKey): array
         $device['opslag'] = (string) ($row['opslag'] ?? '');
         $device['os'] = (string) ($row['os'] ?? '');
         $device['os_versie'] = (string) ($row['os_versie'] ?? '');
+    } elseif ($typeKey === 'simcards') {
+        $device['telefoonnummer'] = (string) ($row['telefoonnummer'] ?? '');
+        $device['telefoonnummer_norm'] = (string) ($row['telefoonnummer_norm'] ?? '');
     } else {
         $device['beschrijving'] = (string) ($row['beschrijving'] ?? '');
     }
@@ -1251,9 +1495,11 @@ function moirai_list_devices(string $type): array
 
     $table = moirai_table_name($typeKey);
     $pdo = moirai_db();
-    $orderBy = $typeKey === 'accessories'
-        ? 'naam COLLATE NOCASE ASC, accessory_id COLLATE NOCASE ASC'
-        : 'model COLLATE NOCASE ASC, naam COLLATE NOCASE ASC';
+    $orderBy = match ($typeKey) {
+        'accessories' => 'naam COLLATE NOCASE ASC, accessory_id COLLATE NOCASE ASC',
+        'simcards' => 'telefoonnummer_norm ASC, code COLLATE NOCASE ASC',
+        default => 'model COLLATE NOCASE ASC, naam COLLATE NOCASE ASC',
+    };
     $rows = $pdo->query("SELECT * FROM {$table} ORDER BY {$orderBy}")->fetchAll();
     $devices = [];
 
@@ -1360,6 +1606,15 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             throw new InvalidArgumentException(moirai_loc('moirai.error.modelnummer_required'));
         }
         $keyValue = $isNew ? '' : $originalKey;
+    } elseif ($typeKey === 'simcards') {
+        $sanitized['code'] = moirai_format_simcard_code((string) ($sanitized['code'] ?? ''));
+        $keyValue = $sanitized['code'];
+        if ($keyValue === '') {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.sim_code_required'));
+        }
+        if (trim((string) ($sanitized['telefoonnummer'] ?? '')) === '') {
+            throw new InvalidArgumentException(moirai_loc('moirai.error.phone_required'));
+        }
     } else {
         $keyValue = $sanitized[$keyField];
         if ($sanitized['model'] === '') {
@@ -1440,6 +1695,23 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'aanschafdatum' => $sanitized['aanschafdatum'],
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
+    } elseif ($typeKey === 'simcards') {
+        $params = [
+            'code' => $keyValue,
+            'code_norm' => moirai_normalize_simcard_code($keyValue),
+            'telefoonnummer' => $sanitized['telefoonnummer'],
+            'telefoonnummer_norm' => $sanitized['telefoonnummer_norm'],
+            'fysieke_staat' => $sanitized['fysieke_staat'],
+        ] + $assignment;
+        $duplicate = moirai_simcard_duplicate_error(
+            $pdo,
+            $keyValue,
+            $sanitized['telefoonnummer_norm'],
+            $isNew ? '' : $originalKey
+        );
+        if ($duplicate !== null) {
+            throw new InvalidArgumentException($duplicate);
+        }
     } else {
         $params = [
             'accessory_id' => $keyValue,
@@ -1487,7 +1759,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             $stmt->execute($params);
         } catch (PDOException $error) {
             if (str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                throw new InvalidArgumentException(moirai_duplicate_key_message($typeKey));
+                throw new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params));
             }
             throw $error;
         }
@@ -1512,23 +1784,29 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
                     throw $error;
                 }
                 if ($error instanceof PDOException && str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                    throw new InvalidArgumentException(moirai_duplicate_key_message($typeKey));
+                    throw new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params, $originalKey));
                 }
                 throw $error;
             }
         } else {
+            // Zoek op de originele sleutel, zodat een wijziging in alleen hoofd-/kleine
+            // letters (abc -> ABC) ook de sleutelkolom bijwerkt.
             $setParts = [];
-            $updateParams = ['lookup_key' => $keyValue];
+            $updateParams = ['lookup_key' => $originalKey];
             foreach ($columns as $column) {
-                if ($column === $keyField) {
-                    continue;
-                }
                 $setParts[] = $column . ' = :' . $column;
                 $updateParams[$column] = $params[$column];
             }
             $updateSql = 'UPDATE ' . $table . ' SET ' . implode(', ', $setParts) . ' WHERE ' . $keyField . ' = :lookup_key';
-            $stmt = $pdo->prepare($updateSql);
-            $stmt->execute($updateParams);
+            try {
+                $stmt = $pdo->prepare($updateSql);
+                $stmt->execute($updateParams);
+            } catch (PDOException $error) {
+                if (str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
+                    throw new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params, $originalKey));
+                }
+                throw $error;
+            }
         }
     }
 
@@ -1663,6 +1941,11 @@ function moirai_device_matches_filter(array $device, string $query, string $stat
             (string) ($device['serienummer'] ?? ''),
             (string) ($device['imei'] ?? ''),
             (string) ($device['accessory_id'] ?? ''),
+            (string) ($device['code'] ?? ''),
+            (string) ($device['telefoonnummer'] ?? ''),
+            (string) ($device['telefoonnummer_norm'] ?? ''),
+            moirai_phone_number_national((string) ($device['telefoonnummer_norm'] ?? '')),
+            str_replace([' ', '-'], '', (string) ($device['telefoonnummer'] ?? '')),
             (string) ($device['modelnummer'] ?? ''),
             (string) ($device['beschrijving'] ?? ''),
             (string) ($device['ram'] ?? ''),

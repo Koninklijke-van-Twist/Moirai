@@ -22,6 +22,10 @@ try {
         moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
     }
 
+    if (moirai_type_key($type) !== null && !moirai_type_can_print_label($type)) {
+        moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.print_not_supported')], 400);
+    }
+
     $device = moirai_get_device($type, $id);
     if ($device === null) {
         moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.device_not_found')], 404);

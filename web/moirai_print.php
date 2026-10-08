@@ -136,6 +136,7 @@ function moirai_build_device_pos_document(array $device, string $type): array
     if ($typeKey === null) {
         throw new InvalidArgumentException(moirai_loc('moirai.error.unknown_type'));
     }
+    moirai_assert_type_can_print_label($typeKey);
 
     $keyField = moirai_device_key_field($typeKey);
     $id = trim((string) ($device[$keyField] ?? $device['id'] ?? ''));

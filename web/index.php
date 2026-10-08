@@ -19,6 +19,7 @@ $moiraiJsKeys = [
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
     'moirai.field.naam', 'moirai.field.modelnummer', 'moirai.field.accessory_id', 'moirai.field.description',
+    'moirai.field.sim_code', 'moirai.field.phone_number', 'moirai.error.print_not_supported',
     'moirai.field.ram', 'moirai.field.storage', 'moirai.field.cpu', 'moirai.field.purchase_date', 'moirai.field.os', 'moirai.field.os_version', 'moirai.field.keyboard',
     'moirai.field.screen', 'moirai.field.condition', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve', 'moirai.select.unavailable',
     'moirai.condition.uitstekend', 'moirai.condition.netjes', 'moirai.condition.lichte_slijtage', 'moirai.condition.beschadigd',
@@ -178,6 +179,7 @@ $moiraiJsKeys = [
 
         input[type="search"],
         input[type="text"],
+        input[type="tel"],
         input[type="date"],
         select,
         textarea {
@@ -710,6 +712,7 @@ $moiraiJsKeys = [
             <button type="button" class="tab is-active" data-tab="laptop" role="tab" aria-selected="true"><?= moirai_h(LOC('moirai.tab.laptops')) ?></button>
             <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.phones')) ?></button>
             <button type="button" class="tab" data-tab="accessory" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.accessories')) ?></button>
+            <button type="button" class="tab" data-tab="simcard" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.simcards')) ?></button>
         </div>
 
         <div class="attr-filters" id="attr-filters"></div>
@@ -806,6 +809,7 @@ $moiraiJsKeys = [
         MOIRAI_CONDITION_OPTIONS
     ), JSON_UNESCAPED_UNICODE) ?>;
     var conditionDefault = <?= json_encode(MOIRAI_CONDITION_DEFAULT) ?>;
+    var labelTypes = <?= json_encode(array_values(array_map('moirai_public_type', MOIRAI_LABEL_TYPE_KEYS))) ?>;
     var i18n = <?= localizationJsTranslations($moiraiJsKeys) ?>;
     var state = {
         tab: 'laptop',
@@ -842,6 +846,9 @@ $moiraiJsKeys = [
         accessory: [
             { name: 'naam', labelKey: 'moirai.filter.name' },
             { name: 'aanschafdatum', labelKey: 'moirai.filter.purchase_date' },
+            { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
+        ],
+        simcard: [
             { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ]
     };
@@ -890,6 +897,9 @@ $moiraiJsKeys = [
         if (type === 'phone') {
             return 'phones';
         }
+        if (type === 'simcard') {
+            return 'simcards';
+        }
         return 'accessories';
     }
 
@@ -899,6 +909,9 @@ $moiraiJsKeys = [
         }
         if (type === 'phone') {
             return 'p';
+        }
+        if (type === 'simcard') {
+            return 's';
         }
         return 'a';
     }
@@ -913,6 +926,9 @@ $moiraiJsKeys = [
         if (code === 'a') {
             return 'accessory';
         }
+        if (code === 's') {
+            return 'simcard';
+        }
         return null;
     }
 
@@ -922,6 +938,9 @@ $moiraiJsKeys = [
         }
         if (type === 'phone') {
             return 'imei';
+        }
+        if (type === 'simcard') {
+            return 'code';
         }
         return 'accessory_id';
     }
@@ -933,7 +952,14 @@ $moiraiJsKeys = [
         if (type === 'phone') {
             return t('moirai.field.imei');
         }
+        if (type === 'simcard') {
+            return t('moirai.field.sim_code');
+        }
         return t('moirai.field.accessory_id');
+    }
+
+    function canPrintLabel(type) {
+        return labelTypes.indexOf(type) !== -1;
     }
 
     function escapeHtml(value) {
@@ -1106,6 +1132,10 @@ $moiraiJsKeys = [
             return desc || key || '—';
         }
 
+        if (type === 'simcard') {
+            return key ? keyLabel(type) + ': ' + key : '—';
+        }
+
         var os = String(device.os || '').trim();
         var osVersion = String(device.os_versie || '').trim();
         var osPart = [os, osVersion].filter(Boolean).join(' ');
@@ -1265,6 +1295,14 @@ $moiraiJsKeys = [
             ];
         }
 
+        if (type === 'simcard') {
+            return [
+                { name: 'telefoonnummer', labelKey: 'moirai.field.phone_number', required: true, inputType: 'tel' },
+                { name: 'code', labelKey: 'moirai.field.sim_code', required: true, key: true },
+                conditionField
+            ];
+        }
+
         var accessoryFields = [
             { name: 'naam', labelKey: 'moirai.field.naam', required: true, autocomplete: 'accessory-names' },
             { name: 'modelnummer', labelKey: 'moirai.field.modelnummer', required: true },
@@ -1297,7 +1335,7 @@ $moiraiJsKeys = [
             return;
         }
 
-        var hashMatch = hash.match(/^(l|p|a)\/(.+)$/);
+        var hashMatch = hash.match(/^(l|p|a|s)\/(.+)$/);
         if (!hashMatch) {
             return;
         }
@@ -1316,7 +1354,7 @@ $moiraiJsKeys = [
     function parseDeepLinkFromUrl() {
         var hash = window.location.hash.replace(/^#/, '');
         if (hash) {
-            var hashMatch = hash.match(/^(l|p|a)\/(.+)$/);
+            var hashMatch = hash.match(/^(l|p|a|s)\/(.+)$/);
             if (hashMatch) {
                 return {
                     type: typeFromShortCode(hashMatch[1]),
@@ -1338,7 +1376,7 @@ $moiraiJsKeys = [
 
         var type = params.get('type');
         var deviceId = params.get('device');
-        if (type && deviceId && (type === 'laptop' || type === 'phone' || type === 'accessory')) {
+        if (type && deviceId && (type === 'laptop' || type === 'phone' || type === 'accessory' || type === 'simcard')) {
             return { type: type, deviceId: deviceId };
         }
 
@@ -1357,6 +1395,10 @@ $moiraiJsKeys = [
     }
 
     function printDeviceLabel(device, type) {
+        if (!canPrintLabel(type)) {
+            showMessage(modalMessage, t('moirai.error.print_not_supported'));
+            return;
+        }
         var id = String(device.id || device[keyField(type)] || '').trim();
         if (!id) {
             showMessage(modalMessage, t('moirai.error.print_failed'));
@@ -1461,12 +1503,14 @@ $moiraiJsKeys = [
         });
         modalActions.appendChild(notesBtn);
 
-        var printBtn = document.createElement('button');
-        printBtn.type = 'button';
-        printBtn.className = 'btn btn-secondary';
-        printBtn.textContent = t('moirai.btn.print_label');
-        printBtn.addEventListener('click', function () { printDeviceLabel(device, state.tab); });
-        modalActions.appendChild(printBtn);
+        if (canPrintLabel(state.tab)) {
+            var printBtn = document.createElement('button');
+            printBtn.type = 'button';
+            printBtn.className = 'btn btn-secondary';
+            printBtn.textContent = t('moirai.btn.print_label');
+            printBtn.addEventListener('click', function () { printDeviceLabel(device, state.tab); });
+            modalActions.appendChild(printBtn);
+        }
 
         if (isAdmin) {
             var assignBtn = document.createElement('button');
@@ -1662,7 +1706,7 @@ $moiraiJsKeys = [
                 html += '<textarea id="field-' + field.name + '" name="' + field.name + '" rows="3"' +
                     (field.required ? ' required' : '') + '>' + escapeHtml(value) + '</textarea>';
             } else {
-                html += '<input type="text" id="field-' + field.name + '" name="' + field.name + '" value="' + escapeHtml(value) + '"' +
+                html += '<input type="' + (field.inputType || 'text') + '" id="field-' + field.name + '" name="' + field.name + '" value="' + escapeHtml(value) + '"' +
                     (field.required ? ' required' : '') +
                     (field.readonly ? ' readonly' : '') +
                     (field.autocomplete ? ' autocomplete="off"' : '') + '>';

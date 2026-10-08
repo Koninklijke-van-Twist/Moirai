@@ -1,6 +1,8 @@
 <?php
 
 require_once __DIR__ . '/lib/kvt-chat/KvtChat.php';
+require_once __DIR__ . '/moirai_csrf.php';
+require_once __DIR__ . '/moirai_budget.php';
 
 const MOIRAI_DB_FILE = __DIR__ . '/data/moirai.sqlite';
 const MOIRAI_FILTER_CACHE_FILE = __DIR__ . '/data/filter_cache.json';
@@ -856,6 +858,7 @@ function moirai_init_schema(PDO $pdo): void
     ");
 
     moirai_migrate_simcards_table($pdo);
+    moirai_migrate_budget_tables($pdo);
 
     moirai_migrate_laptop_os_column($pdo);
     moirai_migrate_legacy_device_values($pdo);
@@ -1815,6 +1818,11 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
         throw new RuntimeException(moirai_loc('moirai.error.save_failed'));
     }
 
+    if ($typeKey === 'phones' && !$isNew && $originalKey !== $keyValue) {
+        // IMEI gewijzigd: telefoonbudget-koppeling meeverhuizen.
+        moirai_budget_phone_key_changed($originalKey, $keyValue);
+    }
+
     if ($isNew) {
         moirai_cache_add_device_values($typeKey, $saved);
     } elseif (is_array($existing)) {
@@ -1850,6 +1858,9 @@ function moirai_delete_device(string $type, string $key): void
 
     moirai_delete_device_notes_thread($typeKey, $key);
     moirai_cache_remove_device_values($typeKey, $device);
+    if ($typeKey === 'phones') {
+        moirai_budget_phone_key_changed($key, null);
+    }
 }
 
 function moirai_device_notes_thread_key(string $typeKey, string $deviceKey): string

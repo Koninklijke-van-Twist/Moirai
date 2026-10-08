@@ -10,6 +10,9 @@ $isAdmin = moirai_is_admin();
 $userEmail = (string) ($_SESSION['user']['email'] ?? '');
 $userName = (string) ($_SESSION['user']['name'] ?? $userEmail);
 $todayIso = date('Y-m-d');
+// CSRF-token vóór de HTML-output: het wordt in de (heropende) sessie bewaard.
+$moiraiCsrf = moirai_csrf_token();
+$budgetCsrf = $moiraiCsrf;
 
 $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.badge.condition', 'moirai.unnamed', 'moirai.filter.all',
@@ -47,6 +50,50 @@ $moiraiJsKeys = [
     <link rel="apple-touch-icon" href="favicon.png">
     <link rel="manifest" href="manifest.php">
     <link rel="stylesheet" href="brand.css">
+    <meta name="moirai-csrf" content="<?= moirai_h($moiraiCsrf) ?>">
+    <script>
+    /* CSRF: voeg X-CSRF-Token toe aan elke same-origin fetch/XHR die geen GET/HEAD is
+       (devices_api, print_label, notities, telefoonbudget). */
+    (function () {
+        var token = document.querySelector('meta[name="moirai-csrf"]').getAttribute('content') || '';
+        window.MOIRAI_CSRF = token;
+        function sameOrigin(url) {
+            try { return new URL(url, window.location.href).origin === window.location.origin; } catch (e) { return false; }
+        }
+        function needsToken(method) {
+            method = String(method || 'GET').toUpperCase();
+            return method !== 'GET' && method !== 'HEAD';
+        }
+        if (window.fetch) {
+            var nativeFetch = window.fetch.bind(window);
+            window.fetch = function (input, init) {
+                var url = typeof input === 'string' ? input : (input && input.url) || '';
+                var method = (init && init.method) || (input && typeof input === 'object' && input.method) || 'GET';
+                if (token && needsToken(method) && sameOrigin(url)) {
+                    init = Object.assign({}, init || {});
+                    var headers = new Headers(init.headers || (input && typeof input === 'object' ? input.headers : undefined) || {});
+                    if (!headers.has('X-CSRF-Token')) {
+                        headers.set('X-CSRF-Token', token);
+                    }
+                    init.headers = headers;
+                }
+                return nativeFetch(input, init);
+            };
+        }
+        var nativeOpen = XMLHttpRequest.prototype.open;
+        var nativeSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function (method, url) {
+            this.__moiraiCsrf = token && needsToken(method) && sameOrigin(url);
+            return nativeOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function () {
+            if (this.__moiraiCsrf) {
+                this.setRequestHeader('X-CSRF-Token', token);
+            }
+            return nativeSend.apply(this, arguments);
+        };
+    })();
+    </script>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
 
@@ -180,6 +227,7 @@ $moiraiJsKeys = [
         input[type="search"],
         input[type="text"],
         input[type="tel"],
+        input[type="email"],
         input[type="date"],
         select,
         textarea {
@@ -713,6 +761,9 @@ $moiraiJsKeys = [
             <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.phones')) ?></button>
             <button type="button" class="tab" data-tab="accessory" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.accessories')) ?></button>
             <button type="button" class="tab" data-tab="simcard" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.simcards')) ?></button>
+            <?php if ($isAdmin): ?>
+            <button type="button" class="tab" data-tab="budget" role="tab" aria-selected="false"><?= moirai_h(LOC('budget.tab')) ?></button>
+            <?php endif; ?>
         </div>
 
         <div class="attr-filters" id="attr-filters"></div>
@@ -739,6 +790,7 @@ $moiraiJsKeys = [
         <div class="loader" id="list-loader"><?= moirai_h(LOC('moirai.loader.devices')) ?></div>
         <div class="device-list" id="device-list" hidden></div>
         <div class="empty-state" id="empty-state" hidden><?= moirai_h(LOC('moirai.empty.devices')) ?></div>
+        <?php require __DIR__ . '/telefoonbudget_ui.php'; ?>
     </main>
 </div>
 
@@ -1479,6 +1531,12 @@ $moiraiJsKeys = [
         modalForm.hidden = true;
         modalTitle.textContent = deviceTitle(device);
 
+        if (isAdmin && state.tab === 'phone' && window.MoiraiBudget) {
+            var budgetSlot = document.createElement('div');
+            modalView.appendChild(budgetSlot);
+            window.MoiraiBudget.renderPhoneLink(budgetSlot, String(device.imei || device.id || '').trim());
+        }
+
         modalActions.innerHTML = '';
         var historyBtn = document.createElement('button');
         historyBtn.type = 'button';
@@ -1943,6 +2001,24 @@ $moiraiJsKeys = [
             tab.classList.toggle('is-active', isActive);
             tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
         });
+
+        var mainPanel = document.querySelector('main.panel');
+        if (type === 'budget') {
+            if (!window.MoiraiBudget) {
+                return Promise.resolve();
+            }
+            listRequestId++;
+            state.tab = 'budget';
+            mainPanel.classList.add('is-budget');
+            window.MoiraiBudget.activate(true);
+            return Promise.resolve();
+        }
+        if (mainPanel.classList.contains('is-budget')) {
+            mainPanel.classList.remove('is-budget');
+            if (window.MoiraiBudget) {
+                window.MoiraiBudget.activate(false);
+            }
+        }
 
         if (state.tab === type) {
             return Promise.resolve();

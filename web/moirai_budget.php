@@ -529,6 +529,14 @@ function moirai_budget_person(string $email, string $fallbackName = ''): array
     ];
 }
 
+/** Persoonsdetail + voorstel voor de indiensttreding uit Microsoft 365 (niet opgeslagen). */
+function moirai_budget_person_with_suggestion(string $email, string $fallbackName = ''): array
+{
+    $person = moirai_budget_person($email, $fallbackName);
+
+    return $person + ['indiensttreding_voorstel' => moirai_budget_hire_suggestion($person['email'])];
+}
+
 /* --------------------------------------------------------- personen -- */
 
 function moirai_budget_directory_users(): array
@@ -1047,6 +1055,234 @@ function moirai_budget_import_commit(array $rows, array $mapping, array $starts,
     return ['toegevoegd' => $inserted, 'overgeslagen' => $skipped, 'personen' => count($needed)];
 }
 
+/* ------------------------------------- Microsoft Graph: indiensttreding -- */
+
+/**
+ * Indiensttreding uit Microsoft Graph (`employeeHireDate`) als VOORSTEL.
+ * - Wordt nooit automatisch opgeslagen: de UI vult het datumveld alleen vooraf in.
+ * - Faalt het ophalen (fout, veld ontbreekt, timeout, te weinig rechten), dan is er stil
+ *   geen voorstel: geen melding aan de gebruiker, alleen error_log aan de serverkant.
+ *   Korte timeouts + 10 minuten fout-cache zodat een trage Graph de UI niet ophoudt.
+ * - Eigen Graph-request met eigen $select, los van de gebruikerslijst (getusers_fetch.php),
+ *   zodat die lijst (en de API-actie `users`) ongewijzigd blijft, ook als het veld niet
+ *   leesbaar is. Leesrecht: User.Read.All (applicatie) is voldoende voor employeeHireDate.
+ * - employeeLeaveDateTime vereist daarnaast User-LifeCycleInfo.Read.All; dat wordt alleen
+ *   in de diagnose geprobeerd en nooit in de gewone flow.
+ */
+const MOIRAI_BUDGET_HIRE_CACHE_TTL = 86400;
+const MOIRAI_BUDGET_HIRE_FAIL_TTL = 600;
+
+/** Graph GET (volgt @odata.nextLink). Test-hook: $GLOBALS['moirai_graph_fetch'] = fn(string $url): array. */
+function moirai_graph_get_all(string $url): array
+{
+    $fetch = $GLOBALS['moirai_graph_fetch'] ?? null;
+    $items = [];
+    $guard = 0;
+    while ($url !== '' && $guard++ < 200) {
+        $page = is_callable($fetch) ? $fetch($url) : moirai_graph_http_get($url);
+        if (!isset($page['value']) || !is_array($page['value'])) {
+            throw new RuntimeException('graph_unexpected_response');
+        }
+        $items = array_merge($items, $page['value']);
+        $url = (string) ($page['@odata.nextLink'] ?? '');
+    }
+
+    return $items;
+}
+
+/** App-only token (client credentials) met de bestaande $graphCredentials uit auth.php. */
+function moirai_graph_token(): string
+{
+    static $token = null;
+    if (is_string($token)) {
+        return $token;
+    }
+    global $graphCredentials;
+    if (empty($graphCredentials['tenantId']) || empty($graphCredentials['clientId']) || empty($graphCredentials['clientSecret'])) {
+        throw new RuntimeException('graph_not_configured');
+    }
+    $ch = curl_init('https://login.microsoftonline.com/' . rawurlencode((string) $graphCredentials['tenantId']) . '/oauth2/v2.0/token');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query([
+            'client_id' => $graphCredentials['clientId'],
+            'client_secret' => $graphCredentials['clientSecret'],
+            'scope' => 'https://graph.microsoft.com/.default',
+            'grant_type' => 'client_credentials',
+        ]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 10,
+    ]);
+    $data = json_decode((string) curl_exec($ch), true);
+    curl_close($ch);
+    if (!is_array($data) || empty($data['access_token'])) {
+        throw new RuntimeException('graph_token_failed');
+    }
+
+    return $token = (string) $data['access_token'];
+}
+
+function moirai_graph_http_get(string $url): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . moirai_graph_token(), 'Accept: application/json'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT => 15,
+    ]);
+    $raw = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    $data = json_decode((string) $raw, true);
+    if ($status >= 400 || !is_array($data)) {
+        $code = is_array($data) ? (string) ($data['error']['code'] ?? '') : '';
+        throw new RuntimeException('graph_http_' . $status . ($code !== '' ? ':' . $code : ''));
+    }
+
+    return $data;
+}
+
+/** App-rechten (roles) uit het token; geen geheim, alleen voor de diagnose. */
+function moirai_graph_token_roles(): array
+{
+    if (isset($GLOBALS['moirai_graph_roles']) && is_array($GLOBALS['moirai_graph_roles'])) {
+        return $GLOBALS['moirai_graph_roles'];
+    }
+    try {
+        $parts = explode('.', moirai_graph_token());
+        $claims = json_decode((string) base64_decode(strtr($parts[1] ?? '', '-_', '+/')), true);
+    } catch (Throwable) {
+        return [];
+    }
+
+    return is_array($claims['roles'] ?? null) ? array_values(array_map('strval', $claims['roles'])) : [];
+}
+
+/** Graph-DateTimeOffset -> JJJJ-MM-DD in Europe/Amsterdam (null bij leeg/ongeldig). */
+function moirai_budget_graph_date(mixed $value): ?string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return null;
+    }
+    try {
+        $date = (new DateTimeImmutable($value))->setTimezone(new DateTimeZone('Europe/Amsterdam'));
+    } catch (Throwable) {
+        return null;
+    }
+    $year = (int) $date->format('Y');
+
+    return $year >= 1900 && $year <= 2100 ? $date->format('Y-m-d') : null;
+}
+
+function moirai_budget_hire_cache_file(): string
+{
+    return moirai_db_file() . '.hire_dates.json';
+}
+
+/**
+ * e-mail => JJJJ-MM-DD uit employeeHireDate (alleen gevulde waarden).
+ * Gecachet naast de database (1 dag). Bij een Graph-fout: lege lijst, 10 minuten niet opnieuw proberen.
+ * Test-hook: $GLOBALS['moirai_budget_hire_dates'].
+ */
+function moirai_budget_hire_dates(bool $refresh = false): array
+{
+    if (isset($GLOBALS['moirai_budget_hire_dates']) && is_array($GLOBALS['moirai_budget_hire_dates'])) {
+        return $GLOBALS['moirai_budget_hire_dates'];
+    }
+    static $memo = null;
+    if (!$refresh && is_array($memo)) {
+        return $memo;
+    }
+    $file = moirai_budget_hire_cache_file();
+    $cached = is_file($file) ? json_decode((string) @file_get_contents($file), true) : null;
+    if (!$refresh && is_array($cached)) {
+        $age = time() - (int) ($cached['opgehaald'] ?? 0);
+        $ttl = !empty($cached['fout']) ? MOIRAI_BUDGET_HIRE_FAIL_TTL : MOIRAI_BUDGET_HIRE_CACHE_TTL;
+        if ($age >= 0 && $age < $ttl) {
+            return $memo = is_array($cached['datums'] ?? null) ? $cached['datums'] : [];
+        }
+    }
+    $dates = [];
+    $error = null;
+    try {
+        foreach (moirai_graph_get_all('https://graph.microsoft.com/v1.0/users?$select=id,mail,employeeHireDate&$filter=accountEnabled%20eq%20true&$top=999') as $user) {
+            $email = strtolower(trim((string) ($user['mail'] ?? '')));
+            $date = moirai_budget_graph_date($user['employeeHireDate'] ?? null);
+            if ($email !== '' && $date !== null) {
+                $dates[$email] = $date;
+            }
+        }
+    } catch (Throwable $e) {
+        $error = $e->getMessage();
+        error_log('Moirai telefoonbudget: employeeHireDate niet op te halen: ' . $error);
+    }
+    @file_put_contents($file, json_encode(['opgehaald' => time(), 'fout' => $error, 'datums' => $dates]), LOCK_EX);
+    @chmod($file, 0640);
+
+    return $memo = $dates;
+}
+
+/** Voorstel voor de indiensttreding van één persoon (of null). */
+function moirai_budget_hire_suggestion(string $email): ?string
+{
+    $email = strtolower(trim($email));
+
+    return $email !== '' ? (moirai_budget_hire_dates()[$email] ?? null) : null;
+}
+
+/**
+ * Diagnose (alleen aantallen, geen namen of datums per persoon): hoeveel gebruikers die
+ * Moirai toont (actief + functietitel, zoals getusers_fetch.php) hebben employeeHireDate gevuld,
+ * en of employeeLeaveDateTime leesbaar is.
+ */
+function moirai_budget_hire_diagnose(): array
+{
+    $result = ['ok' => true, 'totaal' => 0, 'met_hire_date' => 0, 'jaar_min' => null, 'jaar_max' => null,
+        'leave' => ['leesbaar' => false, 'gevuld' => null, 'fout' => null], 'rechten' => [], 'fout' => null];
+    try {
+        $users = moirai_graph_get_all('https://graph.microsoft.com/v1.0/users?$select=id,mail,jobTitle,employeeHireDate&$filter=accountEnabled%20eq%20true&$top=999');
+    } catch (Throwable $e) {
+        return ['ok' => false, 'fout' => $e->getMessage(), 'rechten' => moirai_graph_token_roles()] + $result;
+    }
+    $shown = [];
+    $years = [];
+    foreach ($users as $user) {
+        if (trim((string) ($user['jobTitle'] ?? '')) === '') {
+            continue;
+        }
+        $shown[(string) ($user['id'] ?? '')] = true;
+        $date = moirai_budget_graph_date($user['employeeHireDate'] ?? null);
+        if ($date !== null) {
+            $years[] = (int) substr($date, 0, 4);
+        }
+    }
+    $result['totaal'] = count($shown);
+    $result['met_hire_date'] = count($years);
+    $result['jaar_min'] = $years !== [] ? min($years) : null;
+    $result['jaar_max'] = $years !== [] ? max($years) : null;
+    try {
+        $leave = moirai_graph_get_all('https://graph.microsoft.com/v1.0/users?$select=id,employeeLeaveDateTime&$filter=accountEnabled%20eq%20true&$top=999');
+        $result['leave']['leesbaar'] = true;
+        $result['leave']['gevuld'] = count(array_filter($leave, static fn(array $u): bool => isset($shown[(string) ($u['id'] ?? '')]) && moirai_budget_graph_date($u['employeeLeaveDateTime'] ?? null) !== null));
+    } catch (Throwable $e) {
+        $result['leave']['fout'] = $e->getMessage();
+    }
+    $result['rechten'] = moirai_graph_token_roles();
+    // Zonder het lifecycle-recht kan Graph het veld als leeg teruggeven in plaats van 403:
+    // dan is "0 gevuld" niet betrouwbaar.
+    if ($result['leave']['leesbaar'] && $result['rechten'] !== []
+        && !array_intersect(['User-LifeCycleInfo.Read.All', 'User-LifeCycleInfo.ReadWrite.All'], $result['rechten'])) {
+        $result['leave'] = ['leesbaar' => false, 'gevuld' => null, 'fout' => 'missing_role:User-LifeCycleInfo.Read.All'];
+    }
+    // Voorstel-cache vervalt, zodat de volgende keer de actuele waarden worden opgehaald.
+    @unlink(moirai_budget_hire_cache_file());
+
+    return $result;
+}
+
 /* ----------------------------------------------------------------- API -- */
 
 function moirai_budget_csrf_token(): string
@@ -1059,7 +1295,7 @@ function moirai_budget_csrf_valid(string $presented): bool
     return moirai_csrf_valid($presented);
 }
 
-const MOIRAI_BUDGET_READ_ACTIONS = ['people', 'person', 'preview', 'settings', 'phone_options'];
+const MOIRAI_BUDGET_READ_ACTIONS = ['people', 'person', 'preview', 'settings', 'phone_options', 'hire_suggestion', 'hire_diagnose'];
 
 /**
  * Server-side dispatcher. Alle acties: alleen ICT-admins (moirai_is_admin()).
@@ -1084,7 +1320,19 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
             case 'people':
                 return [200, ['ok' => true] + moirai_budget_list_people($str('q'), max(1, (int) ($payload['page'] ?? 1)), MOIRAI_BUDGET_PAGE_SIZE, $str('filter') ?: 'all')];
             case 'person':
-                return [200, ['ok' => true, 'person' => moirai_budget_person($str('email'), $str('naam'))]];
+                return [200, ['ok' => true, 'person' => moirai_budget_person_with_suggestion($str('email'), $str('naam'))]];
+            case 'hire_suggestion':
+                // Voorstel uit Microsoft 365 (employeeHireDate); wordt niet opgeslagen.
+                // Nooit een fout naar de UI: ongeldig adres of Graph-probleem = gewoon geen voorstel.
+                $hireEmail = strtolower(trim($str('email')));
+                $valid = filter_var($hireEmail, FILTER_VALIDATE_EMAIL) !== false;
+                return [200, ['ok' => true, 'email' => $hireEmail, 'voorstel' => $valid ? moirai_budget_hire_suggestion($hireEmail) : null]];
+            case 'hire_diagnose':
+                $diagnose = moirai_budget_hire_diagnose();
+                if (!$diagnose['ok']) {
+                    $diagnose['error'] = moirai_loc('budget.hire.failed', (string) $diagnose['fout']);
+                }
+                return [200, $diagnose];
             case 'preview':
                 $email = moirai_budget_normalize_email($str('email'));
                 $person = moirai_budget_require_start($email);
@@ -1109,7 +1357,8 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
                 }
                 // no break
             case 'set_start':
-                return [200, ['ok' => true, 'person' => moirai_budget_set_start($str('email'), $str('indiensttreding'), $str('naam'))]];
+                $person = moirai_budget_set_start($str('email'), $str('indiensttreding'), $str('naam'));
+                return [200, ['ok' => true, 'person' => $person + ['indiensttreding_voorstel' => moirai_budget_hire_suggestion($person['email'])]]];
             case 'add_purchase':
                 $purchase = moirai_budget_add_purchase($str('email'), $payload);
                 return [200, ['ok' => true, 'purchase' => moirai_budget_public_purchase($purchase), 'person' => moirai_budget_person($purchase['email'])]];

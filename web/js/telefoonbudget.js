@@ -103,10 +103,18 @@
         } else {
             html += '<p class="budget-muted">' + esc(t('budget.start_required')) + '</p>';
         }
+        // Voorstel uit Microsoft 365 (employeeHireDate): alleen vooringevuld, pas opgeslagen na "Indiensttreding opslaan".
+        var hire = p.indiensttreding_voorstel || '';
+        var startValue = p.indiensttreding || hire;
         html += '<form class="budget-start-form" id="budget-person-start"><label>' + esc(t('budget.col.start')) +
-            '<br><input type="date" name="indiensttreding" required value="' + esc(p.indiensttreding || '') + '"></label>' +
+            '<br><input type="date" name="indiensttreding" required value="' + esc(startValue) + '"></label>' +
             '<button type="submit" class="btn btn-secondary">' + esc(t('budget.save_start')) + '</button>' +
             '<span class="budget-muted">' + esc(p.email) + '</span></form>';
+        if (hire && !p.indiensttreding) {
+            html += '<p class="budget-muted budget-hire-hint">' + esc(t('budget.hire.suggestion', date(hire))) + '</p>';
+        } else if (hire && hire !== p.indiensttreding) {
+            html += '<p class="budget-muted budget-hire-hint">' + esc(t('budget.hire.differs', date(hire))) + '</p>';
+        }
         if (!p.purchases.length) {
             html += '<p class="budget-muted">' + esc(t('budget.no_purchases')) + '</p>';
         } else {
@@ -235,12 +243,48 @@
         }).catch(function (e) { msg('budget-settings-modal', e.message); });
     });
 
+    /* -------------------------------- indiensttreding uit Microsoft 365 -- */
+    // Vult een leeg datumveld vooraf in met employeeHireDate; slaat niets op.
+    function prefillHireDate(email, input, hintEl) {
+        api('hire_suggestion', { email: email }).then(function (data) {
+            if (!data.voorstel || input.value) { return; }
+            input.value = data.voorstel;
+            if (hintEl) { hintEl.textContent = t('budget.hire.suggestion', date(data.voorstel)); }
+        }).catch(function () { /* geen voorstel: gewoon handmatig invullen */ });
+    }
+    document.getElementById('budget-hire-diagnose-btn').addEventListener('click', function () {
+        var out = document.getElementById('budget-hire-diagnose-result');
+        out.innerHTML = '<p class="budget-muted">…</p>';
+        api('hire_diagnose').then(function (d) {
+            var lines = [];
+            if (!d.ok) {
+                lines.push(t('budget.hire.failed', d.fout || '?'));
+            } else if (d.met_hire_date > 0) {
+                lines.push(t('budget.hire.result', d.totaal, d.met_hire_date, d.jaar_min === d.jaar_max ? String(d.jaar_min) : d.jaar_min + '–' + d.jaar_max));
+            } else {
+                lines.push(t('budget.hire.result_none', d.totaal));
+            }
+            if (d.ok) {
+                lines.push(d.leave && d.leave.leesbaar ? t('budget.hire.leave_ok', d.leave.gevuld) : t('budget.hire.leave_no', (d.leave && d.leave.fout) || '?'));
+            }
+            if (d.rechten && d.rechten.length) { lines.push(t('budget.hire.roles', d.rechten.join(', '))); }
+            out.innerHTML = lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('');
+        }).catch(function (e) { out.innerHTML = '<p>' + esc(e.message) + '</p>'; });
+    });
+
     /* ------------------------------------------------------ persoon toevoegen -- */
     var addPersonForm = document.getElementById('budget-add-person-form');
     document.getElementById('budget-add-person-btn').addEventListener('click', function () {
         addPersonForm.reset();
+        document.getElementById('budget-add-person-hint').textContent = '';
         open('budget-add-person-modal');
         addPersonForm.elements.email.focus();
+    });
+    addPersonForm.elements.email.addEventListener('change', function () {
+        var input = addPersonForm.elements.email;
+        if (input.value.trim() && input.checkValidity()) {
+            prefillHireDate(input.value.trim(), addPersonForm.elements.indiensttreding, document.getElementById('budget-add-person-hint'));
+        }
     });
     addPersonForm.addEventListener('submit', function (event) {
         event.preventDefault();
@@ -396,8 +440,10 @@
         if (!next) { close('budget-start-modal'); commitImport(); return; }
         document.getElementById('budget-start-text').textContent = t('budget.import.ask_start_body', next.naam, next.email, next.bron, next.aantal, date(next.eerste));
         startForm.elements.indiensttreding.value = '';
+        document.getElementById('budget-start-hint').textContent = '';
         open('budget-start-modal');
         startForm.elements.indiensttreding.focus();
+        prefillHireDate(next.email, startForm.elements.indiensttreding, document.getElementById('budget-start-hint'));
     }
     startForm.addEventListener('submit', function (event) {
         event.preventDefault();

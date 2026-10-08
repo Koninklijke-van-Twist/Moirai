@@ -261,6 +261,7 @@ function moirai_api_help(): array
             ['name' => 'notes_add', 'auth' => true, 'method' => ['POST'], 'ui' => 'Add device note', 'params' => ['type', 'id', 'message_text|message']],
             ['name' => 'notes_edit', 'auth' => true, 'method' => ['POST'], 'ui' => 'Edit device note', 'params' => ['type', 'id', 'message_id', 'message_text|message']],
             ['name' => 'budget_get', 'alias' => ['budget'], 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Telefoonbudget of one person (read-only)', 'params' => ['email']],
+            ['name' => 'budget_hire_stats', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Diagnose: how many users have employeeHireDate in Microsoft 365 (counts only, no names/dates)', 'params' => []],
             ['name' => 'budget_add_purchase', 'alias' => ['budget_purchase_add'], 'auth' => true, 'method' => ['POST'], 'ui' => 'Register phone purchase (always Onbevestigd; confirm/edit/delete only in UI)', 'params' => ['email', 'prijs|price', 'datum|date (default today)', 'telefoon|phone', 'notitie|note', 'client_ref (idempotency)']],
             ['name' => 'notes_delete', 'auth' => true, 'method' => ['POST'], 'ui' => 'Delete device note', 'params' => ['type', 'id', 'message_id']],
         ],
@@ -297,6 +298,7 @@ function moirai_api_help(): array
             '404' => ['device_not_found', 'note_not_found', 'person_not_found', 'no_budget'],
             '409' => ['client_ref_conflict'],
             '503' => ['users_unavailable'],
+            '502' => ['graph_failed'],
             '405' => ['method_not_allowed'],
             '500' => ['generic'],
         ],
@@ -603,6 +605,10 @@ function moirai_api_dispatch(string $action): array
                 static fn(): array => moirai_api_directory_users()
             );
 
+        case 'budget_hire_stats':
+            // Alleen aantallen; geen namen of datums per persoon.
+            $stats = moirai_budget_hire_diagnose();
+            return ['status' => $stats['ok'] ? 200 : 502, 'body' => $stats['ok'] ? $stats : $stats + ['error_code' => 'graph_failed', 'error' => (string) $stats['fout']]];
         case 'budget_add_purchase':
         case 'budget_purchase_add':
             return moirai_budget_api_add_purchase(

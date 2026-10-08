@@ -44,13 +44,14 @@ Do **not** put keys in the querystring. Any `?api_key=` — including on `help`/
 - Responses are JSON UTF-8 with `ok` (bool)
 - Wrong method on a mutation → `405` `method_not_allowed`
 
-`type` accepts `laptop` / `laptops`, `phone` / `phones`, `accessory` / `accessories`.
+`type` accepts `laptop` / `laptops`, `phone` / `phones`, `accessory` / `accessories`, `simcard` / `simcards` (also `sim`, `simkaart`, `sim-kaart`).
 
 Device id:
 
 - laptop: `serienummer`
 - phone: `imei`
 - accessory: `accessory_id` (assigned on create)
+- simcard: `code`
 
 ## UI inventory → API actions
 
@@ -133,6 +134,8 @@ Phone fields: `model`, `imei`, `schermformaat`, `opslag`, `os`, `os_versie`, `aa
 
 Accessory fields: `naam`, `modelnummer`, `beschrijving`, `aanschafdatum`, `fysieke_staat`. Accessory id is generated.
 
+SIM card fields: `code` (required, unique), `telefoonnummer` (required, unique), `fysieke_staat`. `code` is compared case-insensitively without spaces/dashes. `telefoonnummer` is stored as entered (readable) and compared in normalized E.164 form (`telefoonnummer_norm`, e.g. `+31612345678`): spaces, dashes, `+31`, `0031`, `(0)` and a leading `0` are treated alike. A duplicate returns `400` with a Dutch message naming the existing SIM card.
+
 Success → `201` `{ "ok": true, "device": { } }`.
 
 `verouderd`, `qr_geldig`, and admin flags in the body are ignored.
@@ -193,7 +196,7 @@ One action returns **both** the UI PosFile and the ready-to-open print URL (same
 - `pos` — JSON from `moirai_build_device_pos_document()`
 - `url` — `posprint://print?v=1&d=…&noconfirm=1…` from `moirai_build_device_posprint_url()`
 
-`GET/POST action=label_pos` (aliases `get_pos`, `pos`, `print_label`). Params: `type`, `id`. Optional `download=1` streams the `.pos` file (`Content-Disposition: attachment`, filename `{id}.pos`). The JSON body still includes `url` when not downloading.
+`GET/POST action=label_pos` (aliases `get_pos`, `pos`, `print_label`). Params: `type`, `id`. Not available for `simcard` (a label does not fit on a SIM): returns `400` `print_not_supported`. Optional `download=1` streams the `.pos` file (`Content-Disposition: attachment`, filename `{id}.pos`). The JSON body still includes `url` when not downloading.
 
 ```bash
 curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-API-1" \

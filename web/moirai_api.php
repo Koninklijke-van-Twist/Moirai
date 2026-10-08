@@ -255,27 +255,30 @@ function moirai_api_help(): array
             ['name' => 'delete', 'auth' => true, 'method' => ['POST'], 'ui' => 'Delete device', 'params' => ['type', 'id']],
             ['name' => 'verify_qr', 'auth' => true, 'method' => ['POST'], 'ui' => 'Mark QR verified after print scan', 'params' => ['type', 'id']],
             ['name' => 'users', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Directory users for assign', 'params' => ['refresh']],
-            ['name' => 'label_pos', 'alias' => ['get_pos', 'pos'], 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Label: PosFile (.pos) + posprint:// URL', 'params' => ['type', 'id', 'download']],
-            ['name' => 'print_label', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Same as label_pos (UI print_label.php name)', 'params' => ['type', 'id', 'download']],
+            ['name' => 'label_pos', 'alias' => ['get_pos', 'pos'], 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Label: PosFile (.pos) + posprint:// URL', 'params' => ['type', 'id', 'download'], 'types' => moirai_api_label_types()],
+            ['name' => 'print_label', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Same as label_pos (UI print_label.php name)', 'params' => ['type', 'id', 'download'], 'types' => moirai_api_label_types()],
             ['name' => 'notes_list', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Device notes', 'params' => ['type', 'id']],
             ['name' => 'notes_add', 'auth' => true, 'method' => ['POST'], 'ui' => 'Add device note', 'params' => ['type', 'id', 'message_text|message']],
             ['name' => 'notes_edit', 'auth' => true, 'method' => ['POST'], 'ui' => 'Edit device note', 'params' => ['type', 'id', 'message_id', 'message_text|message']],
             ['name' => 'notes_delete', 'auth' => true, 'method' => ['POST'], 'ui' => 'Delete device note', 'params' => ['type', 'id', 'message_id']],
         ],
-        'types' => ['laptop', 'phone', 'accessory'],
+        'types' => ['laptop', 'phone', 'accessory', 'simcard'],
         'fields' => [
             'laptop' => MOIRAI_LAPTOP_FIELDS,
             'phone' => MOIRAI_PHONE_FIELDS,
             'accessory' => MOIRAI_ACCESSORY_FIELDS,
+            'simcard' => MOIRAI_SIMCARD_FIELDS,
         ],
         'filters' => [
             'laptop' => MOIRAI_LAPTOP_FILTER_FIELDS,
             'phone' => MOIRAI_PHONE_FILTER_FIELDS,
             'accessory' => MOIRAI_ACCESSORY_FILTER_FIELDS,
+            'simcard' => MOIRAI_SIMCARD_FILTER_FIELDS,
         ],
         'statuses' => ['all', 'assigned', 'reserve', 'unavailable'],
         'conditions' => MOIRAI_CONDITION_OPTIONS,
         'practice' => [
+            'simcard' => 'Id = code. code and telefoonnummer are unique (telefoonnummer compared normalized: spaces/dashes ignored, 06… = +316… = 00316…). No labels: label_pos/print_label return 400 print_not_supported.',
             'laptop_create' => 'API-required: model, serienummer. Still fill ram, opslag, cpu, os, os_versie, toetsenbord, aanschafdatum, fysieke_staat on create.',
             'lenovo_model' => 'Marketing name only, no MTM/CTO suffix: ThinkBook 14 2-in-1 G6 IPL — not ThinkBook 14 2-in-1 G6 IPL (22ARCTO1WW).',
         ],
@@ -287,7 +290,7 @@ function moirai_api_help(): array
         ],
         'errors' => [
             '401' => ['unauthorized', 'api_key_missing', 'api_key_query'],
-            '400' => ['unknown_action', 'invalid_input', 'validation errors from moirai_data'],
+            '400' => ['unknown_action', 'invalid_input', 'print_not_supported', 'validation errors from moirai_data'],
             '403' => ['forbidden'],
             '404' => ['device_not_found', 'note_not_found'],
             '405' => ['method_not_allowed'],
@@ -348,6 +351,14 @@ function moirai_api_require_type(): string
     }
 
     return $type;
+}
+
+/**
+ * @return list<string>
+ */
+function moirai_api_label_types(): array
+{
+    return array_values(array_map('moirai_public_type', MOIRAI_LABEL_TYPE_KEYS));
 }
 
 function moirai_api_pos_filename(string $id): string
@@ -593,17 +604,21 @@ function moirai_api_dispatch(string $action): array
                     ['type' => 'laptop', 'key' => 'laptops', 'id_field' => 'serienummer'],
                     ['type' => 'phone', 'key' => 'phones', 'id_field' => 'imei'],
                     ['type' => 'accessory', 'key' => 'accessories', 'id_field' => 'accessory_id'],
+                    ['type' => 'simcard', 'key' => 'simcards', 'id_field' => 'code', 'label' => false],
                 ],
                 'fields' => [
                     'laptop' => MOIRAI_LAPTOP_FIELDS,
                     'phone' => MOIRAI_PHONE_FIELDS,
                     'accessory' => MOIRAI_ACCESSORY_FIELDS,
+                    'simcard' => MOIRAI_SIMCARD_FIELDS,
                 ],
                 'filters' => [
                     'laptop' => MOIRAI_LAPTOP_FILTER_FIELDS,
                     'phone' => MOIRAI_PHONE_FILTER_FIELDS,
                     'accessory' => MOIRAI_ACCESSORY_FILTER_FIELDS,
+                    'simcard' => MOIRAI_SIMCARD_FILTER_FIELDS,
                 ],
+                'label_types' => moirai_api_label_types(),
                 'statuses' => ['all', 'assigned', 'reserve', 'unavailable'],
                 'conditions' => MOIRAI_CONDITION_OPTIONS,
                 'laptop_os' => MOIRAI_LAPTOP_OS_OPTIONS,
@@ -755,6 +770,9 @@ function moirai_api_dispatch(string $action): array
         case 'get_pos':
         case 'pos':
             $type = moirai_api_require_type();
+            if (!moirai_type_can_print_label($type)) {
+                return moirai_api_error('moirai.error.print_not_supported', 400);
+            }
             $id = moirai_api_require_id();
             $device = moirai_get_device($type, $id);
             if ($device === null) {

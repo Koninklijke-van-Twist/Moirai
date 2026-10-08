@@ -1,11 +1,12 @@
 # Moirai
 
-ICT-apparaatbeheer op sleutels.kvt.nl: laptops, telefoons en accessoires bijhouden, toewijzen aan gebruikers en delen voor een actueel overzicht van ICT-voorraad.
+ICT-apparaatbeheer op sleutels.kvt.nl: laptops, telefoons, accessoires en SIM-kaarten bijhouden, toewijzen aan gebruikers en delen voor een actueel overzicht van ICT-voorraad.
 
 ## Structuur
 
 - `web/index.php` — hoofdpagina (apparatenlijst, toewijzing, labels)
-- `web/moirai_data.php` — SQLite-data-laag (apparaten, accessoires, filters)
+- `web/moirai_data.php` — SQLite-data-laag (apparaten, accessoires, SIM-kaarten, filters)
+  - SIM-kaarten (`simcards`): code en telefoonnummer uniek (genormaliseerd, unieke DB-indexen); geen labels. Tabel en indexen worden idempotent aangemaakt bij de eerste DB-connectie.
 - `web/odata.php` — OData-client, lokale filecache-widget, optionele Mímir-proxy
 - `web/auth_helper.php` — company-discovery / environment-helpers (BC of Mímir)
 - `web/localization.php` — meertalige UI-teksten

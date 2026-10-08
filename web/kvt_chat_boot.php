@@ -10,6 +10,13 @@ require_once __DIR__ . '/localization.php';
 require_once __DIR__ . '/moirai_data.php';
 require_once __DIR__ . '/lib/kvt-chat/KvtChat.php';
 
+// CSRF voor notitie-mutaties via lib/kvt-chat/api.php (add/edit/delete).
+$moiraiChatScript = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_FILENAME'] ?? ''));
+if (str_ends_with($moiraiChatScript, '/lib/kvt-chat/api.php')
+    && in_array(trim((string) ($_GET['action'] ?? $_POST['action'] ?? '')), ['add', 'edit', 'delete'], true)) {
+    moirai_csrf_require();
+}
+
 if (!KvtChat::isConfigured()) {
     KvtChat::configure([
         'pdo' => moirai_db(),

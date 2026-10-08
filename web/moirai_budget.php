@@ -64,9 +64,6 @@ function moirai_migrate_budget_tables(PDO $pdo): void
             email                 TEXT NOT NULL,
             datum                 TEXT NOT NULL,
             prijs_cents           INTEGER NOT NULL,
-            eigen_bijdrage_cents  INTEGER NOT NULL DEFAULT 0,
-            budget_voor_cents     INTEGER NOT NULL DEFAULT 0,
-            budget_na_cents       INTEGER NOT NULL DEFAULT 0,
             status                TEXT NOT NULL DEFAULT 'onbevestigd',
             telefoon              TEXT NOT NULL DEFAULT '',
             notitie               TEXT NOT NULL DEFAULT '',
@@ -79,10 +76,32 @@ function moirai_migrate_budget_tables(PDO $pdo): void
     moirai_ensure_column($pdo, 'budget_purchases', 'telefoon', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'budget_purchases', 'notitie', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'budget_purchases', 'client_ref', 'TEXT');
+    // Eigen bijdrage en budget voor/na worden niet opgeslagen maar altijd uit de tijdlijn
+    // berekend (Tim). Oudere ontwikkel-DB's hadden deze kolommen: veilig weghalen.
+    foreach (['eigen_bijdrage_cents', 'budget_voor_cents', 'budget_na_cents'] as $legacyColumn) {
+        moirai_budget_drop_column_if_exists($pdo, 'budget_purchases', $legacyColumn);
+    }
     $pdo->exec('CREATE INDEX IF NOT EXISTS budget_purchases_email ON budget_purchases (email)');
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS budget_purchases_phone_unique ON budget_purchases (phone_imei)');
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS budget_purchases_import_unique ON budget_purchases (import_hash)');
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS budget_purchases_client_ref_unique ON budget_purchases (client_ref)');
+}
+
+/**
+ * Idempotent: verwijdert een kolom als die bestaat. Lukt DROP COLUMN niet (SQLite < 3.35),
+ * dan blijft de kolom staan; hij heeft een default en wordt nergens meer gelezen.
+ */
+function moirai_budget_drop_column_if_exists(PDO $pdo, string $table, string $column): void
+{
+    $columns = array_column($pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll(), 'name');
+    if (!in_array($column, $columns, true)) {
+        return;
+    }
+    try {
+        $pdo->exec('ALTER TABLE ' . $table . ' DROP COLUMN ' . $column);
+    } catch (PDOException $error) {
+        error_log('Moirai: kon kolom ' . $table . '.' . $column . ' niet verwijderen: ' . $error->getMessage());
+    }
 }
 
 /* ---------------------------------------------------------- settings -- */
@@ -178,7 +197,7 @@ function moirai_budget_normalize_email(mixed $value): string
 {
     $email = strtolower(trim((string) $value));
     if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        throw new InvalidArgumentException(moirai_loc('budget.error.person_invalid'));
+        throw new InvalidArgumentException(moirai_loc('budget.error.email_invalid'));
     }
 
     return $email;
@@ -355,27 +374,32 @@ function moirai_budget_set_start(string $email, string $date, string $name = '')
             bijgewerkt = excluded.bijgewerkt'
     );
     $stmt->execute(['e' => $email, 'n' => $name, 'd' => $date, 't' => date('c')]);
-    moirai_budget_recalculate($email);
 
     return moirai_budget_person($email);
 }
 
-/** Herberekent en bewaart budget_voor/na en eigen bijdrage over de hele tijdlijn. */
-function moirai_budget_recalculate(string $email): void
+/**
+ * Aankopen van een persoon met de BEREKENDE budget_voor_cents, eigen_bijdrage_cents en
+ * budget_na_cents (niets daarvan wordt opgeslagen). Gesorteerd op datum, id.
+ */
+function moirai_budget_computed_rows(string $email): array
 {
     $person = moirai_budget_person_row($email);
-    $timeline = moirai_budget_timeline($person['indiensttreding'] ?? null, moirai_budget_purchase_rows($email), moirai_budget_settings());
-    $stmt = moirai_db()->prepare('UPDATE budget_purchases SET eigen_bijdrage_cents = :o, budget_voor_cents = :v, budget_na_cents = :n WHERE id = :id');
-    foreach ($timeline['purchases'] as $p) {
-        $stmt->execute(['o' => $p['eigen_bijdrage_cents'], 'v' => $p['budget_voor_cents'], 'n' => $p['budget_na_cents'], 'id' => $p['id']]);
-    }
+
+    return moirai_budget_timeline($person['indiensttreding'] ?? null, moirai_budget_purchase_rows($email), moirai_budget_settings())['purchases'];
 }
 
-function moirai_budget_recalculate_all(): void
+/** Eén aankoop met berekende velden. */
+function moirai_budget_computed_purchase(int $id): array
 {
-    foreach (moirai_db()->query('SELECT email FROM budget_people')->fetchAll() as $row) {
-        moirai_budget_recalculate((string) $row['email']);
+    $row = moirai_budget_purchase_row($id);
+    foreach (moirai_budget_computed_rows((string) $row['email']) as $computed) {
+        if ((int) $computed['id'] === $id) {
+            return $computed;
+        }
     }
+
+    return $row;
 }
 
 function moirai_budget_require_start(string $email): array
@@ -407,9 +431,8 @@ function moirai_budget_add_purchase(string $email, array $input): array
         'by' => moirai_current_user_email(),
     ]);
     $id = (int) moirai_db()->lastInsertId();
-    moirai_budget_recalculate($email);
 
-    return moirai_budget_purchase_row($id);
+    return moirai_budget_computed_purchase($id);
 }
 
 function moirai_budget_update_purchase(int $id, array $input): array
@@ -423,9 +446,8 @@ function moirai_budget_update_purchase(int $id, array $input): array
         'n' => array_key_exists('notitie', $input) ? moirai_budget_clean_text($input['notitie'], MOIRAI_BUDGET_NOTE_MAX, true) : $row['notitie'],
         'id' => $id,
     ]);
-    moirai_budget_recalculate((string) $row['email']);
 
-    return moirai_budget_purchase_row($id);
+    return moirai_budget_computed_purchase($id);
 }
 
 /** Statusovergang: alleen onbevestigd → bevestigd en bevestigd → onbevestigd. */
@@ -440,16 +462,14 @@ function moirai_budget_set_status(int $id, string $status): array
         throw new InvalidArgumentException(moirai_loc('budget.error.status_transition'));
     }
     moirai_db()->prepare('UPDATE budget_purchases SET status = :s WHERE id = :id')->execute(['s' => $status, 'id' => $id]);
-    moirai_budget_recalculate((string) $row['email']);
 
-    return moirai_budget_purchase_row($id);
+    return moirai_budget_computed_purchase($id);
 }
 
 function moirai_budget_delete_purchase(int $id): void
 {
     $row = moirai_budget_purchase_row($id);
     moirai_db()->prepare('DELETE FROM budget_purchases WHERE id = :id')->execute(['id' => $id]);
-    moirai_budget_recalculate((string) $row['email']);
 }
 
 function moirai_budget_public_purchase(array $row): array
@@ -476,7 +496,7 @@ function moirai_budget_person(string $email, string $fallbackName = ''): array
 {
     $email = moirai_budget_normalize_email($email);
     $person = moirai_budget_person_row($email);
-    $rows = moirai_budget_purchase_rows($email);
+    $rows = moirai_budget_computed_rows($email);
     $settings = moirai_budget_settings();
     $today = moirai_today()->format('Y-m-d');
     $start = $person['indiensttreding'] ?? null;
@@ -526,7 +546,14 @@ function moirai_budget_directory_users(): array
 function moirai_budget_all_people(): array
 {
     $people = [];
-    foreach (moirai_budget_directory_users() as $user) {
+    try {
+        $directory = moirai_budget_directory_users();
+    } catch (Throwable $error) {
+        // Graph niet bereikbaar: toon in elk geval de personen uit de budgettabel.
+        error_log('Moirai telefoonbudget: gebruikerslijst niet beschikbaar: ' . $error->getMessage());
+        $directory = [];
+    }
+    foreach ($directory as $user) {
         $normalized = moirai_normalize_user($user);
         if ($normalized === null || moirai_is_unavailable_user($normalized)) {
             continue;
@@ -603,7 +630,7 @@ function moirai_budget_phone_options(string $imei): array
     $email = strtolower((string) ($device['uitgegeven_aan']['email'] ?? ''));
     $options = [];
     if ($email !== '' && $email !== MOIRAI_UNAVAILABLE_EMAIL) {
-        foreach (array_reverse(moirai_budget_purchase_rows($email)) as $row) {
+        foreach (array_reverse(moirai_budget_computed_rows($email)) as $row) {
             $options[] = moirai_budget_public_purchase($row) + [
                 'beschikbaar' => $row['phone_imei'] === null || $row['phone_imei'] === $imei,
             ];
@@ -613,7 +640,7 @@ function moirai_budget_phone_options(string $imei): array
     return [
         'imei' => $imei,
         'email' => $email,
-        'linked' => $linked ? moirai_budget_public_purchase($linked) : null,
+        'linked' => $linked ? moirai_budget_public_purchase(moirai_budget_computed_purchase((int) $linked['id'])) : null,
         'options' => $options,
     ];
 }
@@ -783,44 +810,94 @@ function moirai_budget_import_date(mixed $value): string
     throw new InvalidArgumentException('datum');
 }
 
+/** Tussenvoegsels die bij naamvergelijking wegvallen ("Jan van der Berg" == "Berg, Jan van der"). */
+const MOIRAI_BUDGET_NAME_PARTICLES = [
+    'van', 'v', 'vd', 'vdr', 'de', 'der', 'den', 'het', 't', 'ter', 'ten', 'te', 'op', 'in', 'aan', 'bij', 'uit', 'onder',
+    'von', 'vom', 'zu', 'zum', 'zur', 'du', 'da', 'di', 'del', 'della', 'des', 'la', 'le', 'les', 'dos', 'das', 'el', 'l', 'd',
+];
+
+/** Naamtokens: kleine letters, ASCII, leestekens weg, "Achternaam, Voornaam" omgedraaid. */
+function moirai_budget_name_tokens(string $name): array
+{
+    $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+    if (substr_count($name, ',') === 1) {
+        [$last, $first] = array_map('trim', explode(',', $name));
+        $name = $first . ' ' . $last;
+    }
+    $name = mb_strtolower($name);
+    $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT', $name);
+    $name = is_string($ascii) && $ascii !== '' ? $ascii : $name;
+    $name = preg_replace('/[^a-z0-9 ]+/', ' ', str_replace(["'", '`'], ' ', $name)) ?? $name;
+
+    return array_values(array_filter(explode(' ', $name), static fn(string $t): bool => $t !== ''));
+}
+
+/**
+ * Canonieke naamsleutel: tokens zonder tussenvoegsels, gesorteerd. Daardoor matchen
+ * "Jan van den Berg", "jan  VAN DEN berg", "Berg, Jan van den" en "Berg van den Jan".
+ */
+function moirai_budget_name_key(string $name): string
+{
+    $tokens = moirai_budget_name_tokens($name);
+    $core = array_values(array_filter($tokens, static fn(string $t): bool => !in_array($t, MOIRAI_BUDGET_NAME_PARTICLES, true)));
+    if ($core === []) {
+        $core = $tokens;
+    }
+    sort($core);
+
+    return implode(' ', $core);
+}
+
 /**
  * Koppelt een naam/e-mail uit de Excel aan een persoon.
- * zeker: exacte e-mail of exacte (genormaliseerde) unieke naam. Anders kandidaten.
+ * zeker = true alleen bij: e-mailadres, of precies één persoon met dezelfde naam
+ * (na normalisatie van spaties/hoofdletters, tussenvoegsels en voor-/achternaamvolgorde).
+ * Anders: onzeker met kandidaten; de UI vraagt dan per persoon om een e-mailadres.
  */
 function moirai_budget_match_person(string $raw, array $people): array
 {
-    $norm = moirai_budget_normalize_name($raw);
-    if (str_contains($raw, '@')) {
-        $email = strtolower(trim($raw));
-        if (isset($people[$email])) {
-            return ['email' => $email, 'zeker' => true, 'kandidaten' => [$email]];
-        }
+    $trimmed = strtolower(trim($raw));
+    if (str_contains($trimmed, '@') && filter_var($trimmed, FILTER_VALIDATE_EMAIL)) {
+        // Een e-mailadres in de Excel is eenduidig; onbekende adressen worden een nieuwe persoon.
+        return ['email' => $trimmed, 'zeker' => true, 'kandidaten' => [$trimmed]];
     }
+    $norm = moirai_budget_normalize_name($raw);
+    $key = moirai_budget_name_key($raw);
+    $rawTokens = moirai_budget_name_tokens($raw);
     $exact = [];
+    $keyed = [];
     $scored = [];
-    $rawTokens = array_values(array_filter(explode(' ', $norm)));
     foreach ($people as $email => $person) {
-        $name = moirai_budget_normalize_name((string) $person['naam']);
-        if ($name === '') {
+        $name = (string) ($person['naam'] ?? '');
+        if (trim($name) === '') {
             continue;
         }
-        if ($name === $norm) {
+        if (moirai_budget_normalize_name($name) === $norm) {
             $exact[] = $email;
             continue;
         }
-        $tokens = array_values(array_filter(explode(' ', $name)));
-        $common = count(array_intersect($rawTokens, $tokens));
-        similar_text($norm, $name, $pct);
-        $score = $common * 30 + $pct;
+        if ($key !== '' && moirai_budget_name_key($name) === $key) {
+            $keyed[] = $email;
+            continue;
+        }
+        $tokens = moirai_budget_name_tokens($name);
+        $common = count(array_intersect(
+            array_diff($rawTokens, MOIRAI_BUDGET_NAME_PARTICLES),
+            array_diff($tokens, MOIRAI_BUDGET_NAME_PARTICLES)
+        ));
+        similar_text($key, moirai_budget_name_key($name), $pct);
         if ($common > 0 || $pct >= 70) {
-            $scored[$email] = $score;
+            $scored[$email] = $common * 30 + $pct;
         }
     }
     if (count($exact) === 1) {
         return ['email' => $exact[0], 'zeker' => true, 'kandidaten' => $exact];
     }
+    if ($exact === [] && count($keyed) === 1) {
+        return ['email' => $keyed[0], 'zeker' => true, 'kandidaten' => $keyed];
+    }
     arsort($scored);
-    $candidates = array_merge($exact, array_slice(array_keys($scored), 0, 5));
+    $candidates = array_merge($exact, $keyed, array_slice(array_keys($scored), 0, 5));
 
     return ['email' => null, 'zeker' => false, 'kandidaten' => array_values(array_unique($candidates))];
 }
@@ -889,6 +966,14 @@ function moirai_budget_import_commit(array $rows, array $mapping, array $starts,
 {
     $people = moirai_budget_all_people();
     $needed = [];
+    $sourceNames = [];
+    foreach ($mapping as $key => $value) {
+        $value = strtolower(trim((string) $value));
+        if ($value !== '') {
+            // Ook personen buiten de Moirai-gebruikerslijst (bijv. @hunter.be) zijn toegestaan.
+            $mapping[$key] = moirai_budget_normalize_email($value);
+        }
+    }
     foreach ($rows as $row) {
         if ($row['error'] !== null) {
             continue;
@@ -897,10 +982,8 @@ function moirai_budget_import_commit(array $rows, array $mapping, array $starts,
         if ($email === '') {
             continue;
         }
-        if (!isset($people[$email])) {
-            throw new InvalidArgumentException(moirai_loc('budget.error.person_invalid'));
-        }
         $needed[$email] = true;
+        $sourceNames[$email] = $sourceNames[$email] ?? (string) $row['persoon'];
     }
     $missing = [];
     foreach (array_keys($needed) as $email) {
@@ -925,7 +1008,7 @@ function moirai_budget_import_commit(array $rows, array $mapping, array $starts,
         foreach (array_keys($needed) as $email) {
             if (moirai_budget_person_row($email) === null) {
                 $pdo->prepare('INSERT INTO budget_people (email, naam, indiensttreding, bijgewerkt) VALUES (:e, :n, :d, :t)')
-                    ->execute(['e' => $email, 'n' => (string) ($people[$email]['naam'] ?? ($names[$email] ?? '')), 'd' => $starts[$email], 't' => date('c')]);
+                    ->execute(['e' => $email, 'n' => moirai_budget_clean_text((string) ($people[$email]['naam'] ?? ($names[$email] ?? ($sourceNames[$email] ?? ''))), MOIRAI_BUDGET_TEXT_MAX), 'd' => $starts[$email], 't' => date('c')]);
             }
         }
         $stmt = $pdo->prepare(
@@ -960,44 +1043,20 @@ function moirai_budget_import_commit(array $rows, array $mapping, array $starts,
         $pdo->rollBack();
         throw $error;
     }
-    foreach (array_keys($needed) as $email) {
-        moirai_budget_recalculate($email);
-    }
 
     return ['toegevoegd' => $inserted, 'overgeslagen' => $skipped, 'personen' => count($needed)];
 }
 
 /* ----------------------------------------------------------------- API -- */
 
-/**
- * CSRF-token per sessie. localization.php sluit de sessie al vroeg (session_write_close),
- * dus heropenen we hem kort om het token te bewaren. Roep dit aan vóór er output is.
- */
 function moirai_budget_csrf_token(): string
 {
-    if (!empty($_SESSION['moirai_csrf']) && is_string($_SESSION['moirai_csrf'])) {
-        return $_SESSION['moirai_csrf'];
-    }
-    $reopened = false;
-    if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
-        $reopened = @session_start();
-    }
-    if (empty($_SESSION['moirai_csrf']) || !is_string($_SESSION['moirai_csrf'])) {
-        $_SESSION['moirai_csrf'] = bin2hex(random_bytes(32));
-    }
-    $token = $_SESSION['moirai_csrf'];
-    if ($reopened) {
-        session_write_close();
-    }
-
-    return $token;
+    return moirai_csrf_token();
 }
 
 function moirai_budget_csrf_valid(string $presented): bool
 {
-    $expected = (string) ($_SESSION['moirai_csrf'] ?? '');
-
-    return $expected !== '' && $presented !== '' && hash_equals($expected, $presented);
+    return moirai_csrf_valid($presented);
 }
 
 const MOIRAI_BUDGET_READ_ACTIONS = ['people', 'person', 'preview', 'settings', 'phone_options'];
@@ -1015,7 +1074,7 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
     }
     $isRead = in_array($action, MOIRAI_BUDGET_READ_ACTIONS, true);
     if (!$isRead && (strtoupper($method) !== 'POST' || !moirai_budget_csrf_valid($csrf))) {
-        return [403, ['ok' => false, 'error' => moirai_loc('budget.error.csrf')]];
+        return [403, ['ok' => false, 'error' => moirai_loc('budget.error.csrf'), 'error_code' => 'csrf']];
     }
     $str = static fn(string $k): string => trim((string) ($payload[$k] ?? ''));
     $id = static fn(): int => (int) ($payload['id'] ?? 0);
@@ -1042,8 +1101,13 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
                 return [200, ['ok' => true, 'settings' => moirai_budget_settings()]];
             case 'save_settings':
                 $settings = moirai_budget_save_settings($payload);
-                moirai_budget_recalculate_all();
                 return [200, ['ok' => true, 'settings' => $settings]];
+            case 'add_person':
+                // Handmatig een persoon toevoegen op e-mailadres (ook buiten de gebruikerslijst).
+                if ($str('indiensttreding') === '') {
+                    throw new InvalidArgumentException(moirai_loc('budget.error.start_required'));
+                }
+                // no break
             case 'set_start':
                 return [200, ['ok' => true, 'person' => moirai_budget_set_start($str('email'), $str('indiensttreding'), $str('naam'))]];
             case 'add_purchase':
@@ -1094,7 +1158,8 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
                 $result = moirai_budget_import_commit(
                     $stored['rows'],
                     is_array($payload['mapping'] ?? null) ? $payload['mapping'] : [],
-                    is_array($payload['starts'] ?? null) ? $payload['starts'] : []
+                    is_array($payload['starts'] ?? null) ? $payload['starts'] : [],
+                    is_array($payload['names'] ?? null) ? array_map('strval', $payload['names']) : []
                 );
                 unset($_SESSION['moirai_budget_import']);
                 return [200, ['ok' => true, 'result' => $result]];
@@ -1201,7 +1266,7 @@ function moirai_budget_rules_summary(array $settings): array
 function moirai_budget_api_summary(string $email): array
 {
     $person = moirai_budget_person_row($email);
-    $rows = moirai_budget_purchase_rows($email);
+    $rows = moirai_budget_computed_rows($email);
     $settings = moirai_budget_settings();
     $today = moirai_today()->format('Y-m-d');
     $start = (string) $person['indiensttreding'];
@@ -1332,14 +1397,13 @@ function moirai_budget_api_add_purchase(array $input, callable $directory, strin
         throw $error;
     }
     $id = (int) moirai_db()->lastInsertId();
-    moirai_budget_recalculate($email);
 
     return ['status' => 201, 'body' => moirai_budget_api_purchase_result($id, false)];
 }
 
 function moirai_budget_api_purchase_result(int $id, bool $replay): array
 {
-    $row = moirai_budget_purchase_row($id);
+    $row = moirai_budget_computed_purchase($id);
     $summary = moirai_budget_api_summary((string) $row['email']);
     $purchase = array_values(array_filter($summary['aankopen'], static fn(array $p): bool => $p['id'] === $id))[0];
 

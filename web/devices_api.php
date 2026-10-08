@@ -7,6 +7,11 @@ require_once __DIR__ . '/moirai_data.php';
 
 $action = trim((string) ($_GET['action'] ?? $_POST['action'] ?? ''));
 
+// State-changing acties: alleen met geldig CSRF-token (header X-CSRF-Token).
+if (in_array($action, ['save', 'assign', 'delete', 'verify_qr'], true)) {
+    moirai_csrf_require();
+}
+
 try {
     switch ($action) {
         case 'list':

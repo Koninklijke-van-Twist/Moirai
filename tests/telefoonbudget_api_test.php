@@ -163,6 +163,22 @@ foreach (['budget_confirm', 'budget_update_purchase', 'budget_delete_purchase', 
     expect($r['status'] === 400 && $r['body']['error_code'] === 'unknown_action', "no API action {$action}");
 }
 
+// Persoon die alleen in de budgettabel staat (niet in de Moirai-gebruikerslijst),
+// bijv. aangemaakt via de import of "Persoon toevoegen".
+moirai_budget_set_start('piet.extern@hunter.be', '2025-06-01', 'Piet Extern');
+$r = api_call('budget_get', ['email' => 'Piet.Extern@HUNTER.be']);
+expect($r['status'] === 200 && $r['body']['naam'] === 'Piet Extern' && $r['body']['budget_cents'] === 60000, 'budget_get finds budget-table-only person');
+$r = api_call('budget_add_purchase', ['email' => 'piet.extern@hunter.be', 'prijs' => '650,00', 'datum' => '2025-07-01', 'client_ref' => 'metis-piet-1'], 'POST');
+expect($r['status'] === 201 && $r['body']['eigen_bijdrage_cents'] === 5000 && $r['body']['aankoop']['budget_voor_cents'] === 60000, 'budget_add_purchase for budget-table-only person, own contribution computed');
+expect($r['body']['aankoop']['prijs_cents'] === 65000, 'bedrag is the full purchase price');
+// Eigen bijdrage wordt niet opgeslagen: geen kolom, en een gewijzigde instelling werkt direct door.
+$cols = array_column(moirai_db()->query('PRAGMA table_info(budget_purchases)')->fetchAll(), 'name');
+expect(!in_array('eigen_bijdrage_cents', $cols, true) && !in_array('budget_voor_cents', $cols, true) && !in_array('budget_na_cents', $cols, true), 'no stored eigen_bijdrage/budget columns');
+moirai_budget_save_settings(['start_cents' => '700', 'monthly_cents' => '25']);
+$r = api_call('budget_get', ['email' => 'piet.extern@hunter.be']);
+expect($r['body']['aankopen'][0]['eigen_bijdrage_cents'] === 0 && $r['body']['totale_eigen_bijdrage_cents'] === 0, 'own contribution recomputed after settings change');
+moirai_budget_save_settings(['start_cents' => '600', 'monthly_cents' => '25']);
+
 expect(moirai_budget_add_months('2025-01-31', 1) === '2025-02-28' && moirai_budget_add_months('2024-01-31', 1) === '2024-02-29', 'add_months clamps to month end');
 
 @unlink($tmp);

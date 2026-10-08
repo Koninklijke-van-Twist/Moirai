@@ -8,6 +8,8 @@ Machine-readable spec: `GET api.php?action=help` or `GET api.php?action=spec` (n
 
 The browser UI keeps using session-authenticated `devices_api.php`. `api.php` is the machine/API-key surface with the same data layer (`moirai_data.php`).
 
+**CSRF:** the session-based UI endpoints (`devices_api.php` save/assign/delete/verify_qr, `print_label.php`, `lib/kvt-chat/api.php` add/edit/delete, `budget_api.php` write actions) require the header `X-CSRF-Token` (or field `_csrf`) with the token from `<meta name="moirai-csrf">` in `index.php`; without it they return `403` with `error_code: "csrf"`. `index.php` adds the header automatically to every same-origin fetch/XHR that is not GET/HEAD. **`api.php` with an API key (`X-API-Key` / `Bearer`) does not need a CSRF token**; integrations such as Metis keep working unchanged.
+
 ## Authentication
 
 Every action except `help` / `spec` needs a valid service key from local `auth.php`:
@@ -229,6 +231,10 @@ Notes: `notes_list` / `notes_add` / `notes_edit` / `notes_delete` with `type`, `
 
 Gebruikt dezelfde API-keys en dezelfde authenticatie als de rest van `api.php`. Bedragen staan in de response altijd twee keer: in **centen** (integer, `*_cents`) en in **euro's als string met 2 decimalen** (`*_eur`, bijv. `"475.00"`). Datums zijn `JJJJ-MM-DD`.
 
+**Bedragen:** `prijs` / `bedrag` is altijd het **volledige aankoopbedrag**. De eigen bijdrage wordt **niet opgeslagen** maar altijd berekend: `max(0, prijs − budget op de aankoopdatum)`. Ook `budget_voor_*`, `budget_na_*` en `totale_eigen_bijdrage_*` zijn berekende waarden; ze veranderen mee als ICT een eerdere aankoop of de instellingen aanpast.
+
+**Personen:** naast de Moirai-gebruikerslijst zoekt de API ook in de budgettabel. Personen die alleen daar staan (bijv. collega's met een @hunter.be-adres of zonder functie, aangemaakt via de Excel-import of "Persoon toevoegen" in de UI) werken gewoon met `budget_get` en `budget_add_purchase`.
+
 Via de API kun je alleen **opvragen** en **een aankoop toevoegen**. Zo'n aankoop krijgt altijd de status **Onbevestigd**. Bevestigen, aanpassen en verwijderen kan alleen een ICT-admin in de UI (tab Telefoonbudget).
 
 ### `budget_get` (alias `budget`), GET of POST
@@ -323,7 +329,7 @@ Een nieuwe aankoop geeft `201`. Herhaal je hetzelfde verzoek met dezelfde `clien
 | `400` | `invalid_email` | E-mail ontbreekt of is ongeldig |
 | `400` | `invalid_amount` / `invalid_date` | Prijs of datum ongeldig |
 | `401` | `api_key_missing` / `unauthorized` / `api_key_query` | Authenticatie (zie boven) |
-| `404` | `person_not_found` | E-mail onbekend in de gebruikerslijst en in het telefoonbudget |
+| `404` | `person_not_found` | E-mail onbekend in de gebruikerslijst én in de budgettabel |
 | `404` | `no_budget` | Persoon is bekend, maar er is nog geen indiensttreding geregistreerd. ICT moet die eerst in de UI invullen |
 | `405` | `method_not_allowed` | `budget_add_purchase` via GET |
 | `409` | `client_ref_conflict` | De `client_ref` is al gebruikt voor een andere persoon |

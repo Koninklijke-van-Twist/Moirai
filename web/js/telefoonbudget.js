@@ -235,6 +235,23 @@
         }).catch(function (e) { msg('budget-settings-modal', e.message); });
     });
 
+    /* ------------------------------------------------------ persoon toevoegen -- */
+    var addPersonForm = document.getElementById('budget-add-person-form');
+    document.getElementById('budget-add-person-btn').addEventListener('click', function () {
+        addPersonForm.reset();
+        open('budget-add-person-modal');
+        addPersonForm.elements.email.focus();
+    });
+    addPersonForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var body = { email: addPersonForm.elements.email.value.trim(), naam: addPersonForm.elements.naam.value.trim(), indiensttreding: addPersonForm.elements.indiensttreding.value };
+        post('add_person', body).then(function (data) {
+            close('budget-add-person-modal');
+            loadPeople();
+            openPerson(data.person.email, data.person.naam);
+        }).catch(function (e) { msg('budget-add-person-modal', e.message); });
+    });
+
     /* -------------------------------------------------------------- import -- */
     var importForm = document.getElementById('budget-import-form');
     document.getElementById('budget-import-btn').addEventListener('click', function () {
@@ -258,6 +275,11 @@
             seen[c.email] = true;
             html += '<option value="' + esc(c.email) + '"' + (p.email === c.email ? ' selected' : '') + '>' + esc((c.naam || c.email) + ' <' + c.email + '>') + '</option>';
         });
+        if (p.zeker && p.email && !seen[p.email]) {
+            // Zeker op e-mailadres, maar (nog) niet in Moirai: nieuwe persoon.
+            seen[p.email] = true;
+            html += '<option value="' + esc(p.email) + '" selected>' + esc(p.email + ' (' + t('budget.import.new_person') + ')') + '</option>';
+        }
         html += '<option disabled>──────────</option>';
         mensen.forEach(function (m) {
             if (!seen[m.email]) { html += '<option value="' + esc(m.email) + '">' + esc((m.naam || m.email) + ' <' + m.email + '>') + '</option>'; }
@@ -275,7 +297,7 @@
             var badge = p.zeker ? 'bevestigd' : 'onbevestigd';
             var label = p.zeker ? t('budget.import.sure') : (p.kandidaten.length ? t('budget.import.unsure') : t('budget.import.unknown'));
             html += '<tr><td>' + esc(p.bron) + ' <span class="budget-status budget-status-' + badge + '">' + esc(label) + '</span></td>' +
-                '<td><select data-import-key="' + esc(p.key) + '" data-sure="' + (p.zeker ? '1' : '0') + '">' + (p.zeker ? '' : '<option value="__choose__" selected>…</option>') + personOptions(p, mensen) + '</select></td>' +
+                '<td><select data-import-key="' + esc(p.key) + '" data-sure="' + (p.zeker ? '1' : '0') + '">' + (p.zeker ? '' : '<option value="__ask__" selected>' + esc(t('budget.import.ask')) + '</option>') + personOptions(p, mensen) + '</select></td>' +
                 '<td class="num">' + p.nieuw + ' / ' + p.aantal + '</td><td>' + esc(date(p.indiensttreding)) + '</td></tr>';
         });
         html += '</tbody></table></div>';
@@ -286,39 +308,88 @@
         html += '<div class="modal-actions"><button type="button" class="btn btn-primary" id="budget-import-run">' + esc(t('budget.import.run')) + '</button></div>';
         document.getElementById('budget-import-result').innerHTML = html;
     }
-    function collectMapping() {
-        var mapping = {};
-        var missingChoice = false;
-        document.querySelectorAll('#budget-import-result select[data-import-key]').forEach(function (sel) {
-            if (sel.value === '__choose__') { missingChoice = true; return; }
-            mapping[sel.getAttribute('data-import-key')] = sel.value;
-        });
-        return missingChoice ? null : mapping;
-    }
     document.getElementById('budget-import-result').addEventListener('click', function (event) {
         if (event.target.id !== 'budget-import-run') { return; }
-        var mapping = collectMapping();
-        if (!mapping) { msg('budget-import-modal', t('budget.import.need_choice')); return; }
         msg('budget-import-modal', '');
         var d = state.importData;
+        var byKey = {};
+        d.personen.forEach(function (p) { byKey[p.key] = p; });
+        state.importMapping = {};
+        state.importNames = {};
+        state.matchQueue = [];
+        document.querySelectorAll('#budget-import-result select[data-import-key]').forEach(function (sel) {
+            var key = sel.getAttribute('data-import-key');
+            if (sel.value === '__ask__') {
+                if (byKey[key] && byKey[key].nieuw > 0) { state.matchQueue.push(byKey[key]); }
+                return;
+            }
+            state.importMapping[key] = sel.value;
+        });
+        nextMatchQuestion();
+    });
+
+    /* Stap 1: per onzekere/onbekende persoon een modal: suggestie of e-mailadres, of overslaan. */
+    var matchForm = document.getElementById('budget-match-form');
+    function nextMatchQuestion() {
+        var p = state.matchQueue[0];
+        if (!p) { close('budget-match-modal'); buildStartQueue(); return; }
+        document.getElementById('budget-match-text').textContent = t('budget.import.match_body', p.bron, p.nieuw, date(p.eerste_datum));
+        var sug = document.getElementById('budget-match-suggestions');
+        sug.innerHTML = p.kandidaten.length ? '<span class="budget-muted">' + esc(t('budget.import.suggestions')) + ':</span> ' + p.kandidaten.map(function (c) {
+            return '<button type="button" class="chip" data-match-email="' + esc(c.email) + '">' + esc((c.naam || c.email) + ' <' + c.email + '>') + '</button>';
+        }).join('') : '';
+        var list = document.getElementById('budget-match-people');
+        if (!list.childElementCount) {
+            list.innerHTML = state.importData.mensen.map(function (m) { return '<option value="' + esc(m.email) + '">' + esc(m.naam || m.email) + '</option>'; }).join('');
+        }
+        matchForm.elements.email.value = '';
+        msg('budget-match-modal', '');
+        open('budget-match-modal');
+        matchForm.elements.email.focus();
+    }
+    document.getElementById('budget-match-suggestions').addEventListener('click', function (event) {
+        var btn = event.target.closest('[data-match-email]');
+        if (!btn) { return; }
+        matchForm.elements.email.value = btn.getAttribute('data-match-email');
+        matchForm.elements.email.focus();
+    });
+    matchForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        var email = matchForm.elements.email.value.trim().toLowerCase();
+        if (!email || !matchForm.elements.email.checkValidity()) { msg('budget-match-modal', t('budget.error.email_invalid')); return; }
+        var p = state.matchQueue.shift();
+        state.importMapping[p.key] = email;
+        if (!state.importNames[email]) { state.importNames[email] = p.bron; }
+        nextMatchQuestion();
+    });
+    document.getElementById('budget-match-skip').addEventListener('click', function () {
+        var p = state.matchQueue.shift();
+        state.importMapping[p.key] = '';
+        nextMatchQuestion();
+    });
+
+    /* Stap 2: indiensttreding per (nieuwe) persoon, één voor één. */
+    function buildStartQueue() {
+        var d = state.importData;
+        var mapping = state.importMapping;
         var known = {};
         d.mensen.forEach(function (m) { known[m.email] = m; });
         var byEmail = {};
         d.personen.forEach(function (p) {
             var email = mapping[p.key];
             if (!email || p.nieuw === 0) { return; }
-            var m = known[email] || { email: email, naam: email, indiensttreding: null };
+            var m = known[email] || { email: email, naam: state.importNames[email] || p.bron, indiensttreding: null };
             if (m.indiensttreding) { return; }
-            if (!byEmail[email]) { byEmail[email] = { email: email, naam: m.naam || email, bron: p.bron, aantal: 0, eerste: p.eerste_datum }; }
+            if (!byEmail[email]) { byEmail[email] = { email: email, naam: m.naam || p.bron || email, bron: p.bron, aantal: 0, eerste: p.eerste_datum }; }
             else if (byEmail[email].bron.indexOf(p.bron) === -1) { byEmail[email].bron += '", "' + p.bron; }
             byEmail[email].aantal += p.nieuw;
             if (p.eerste_datum < byEmail[email].eerste) { byEmail[email].eerste = p.eerste_datum; }
+            if (!known[email] && !state.importNames[email]) { state.importNames[email] = p.bron; }
         });
-        state.importMapping = mapping;
         state.importStarts = {};
         state.importQueue = Object.keys(byEmail).map(function (k) { return byEmail[k]; });
         nextStartQuestion();
-    });
+    }
     var startForm = document.getElementById('budget-start-form');
     function nextStartQuestion() {
         var next = state.importQueue[0];
@@ -335,7 +406,7 @@
         nextStartQuestion();
     });
     function commitImport() {
-        post('import_commit', { token: state.importData.token, mapping: state.importMapping, starts: state.importStarts })
+        post('import_commit', { token: state.importData.token, mapping: state.importMapping, starts: state.importStarts, names: state.importNames || {} })
             .then(function (data) {
                 var r = data.result;
                 document.getElementById('budget-import-result').innerHTML = '<p><strong>' + esc(t('budget.import.done', r.toegevoegd, r.overgeslagen, r.personen)) + '</strong></p>';

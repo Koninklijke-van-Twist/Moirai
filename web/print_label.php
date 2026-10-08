@@ -6,6 +6,9 @@ require_once __DIR__ . '/localization.php';
 require_once __DIR__ . '/moirai_data.php';
 require_once __DIR__ . '/moirai_print.php';
 
+// Alleen vanuit de UI (POST + X-CSRF-Token); maakt een print-verificatiecode aan.
+moirai_csrf_require();
+
 try {
     $payload = [];
     if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'POST') {

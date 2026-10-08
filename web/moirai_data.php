@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/lib/kvt-chat/KvtChat.php';
+require_once __DIR__ . '/moirai_csrf.php';
 require_once __DIR__ . '/moirai_budget.php';
 
 const MOIRAI_DB_FILE = __DIR__ . '/data/moirai.sqlite';

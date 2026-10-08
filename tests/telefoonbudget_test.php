@@ -151,20 +151,20 @@ moirai_budget_delete_purchase((int) $default['id']);
 
 // Eerdere aankoop aanpassen -> latere aankoop wordt herberekend.
 moirai_budget_update_purchase((int) $a['id'], ['prijs' => '300']);
-$b2 = moirai_budget_purchase_row((int) $b['id']);
+$b2 = moirai_budget_computed_purchase((int) $b['id']);
 expect((int) $b2['budget_voor_cents'] === 35000 && (int) $b2['eigen_bijdrage_cents'] === 0, 'editing earlier purchase recalculates later one');
 $a2 = moirai_budget_update_purchase((int) $a['id'], ['telefoon' => 'Testfoon A1 Pro', 'notitie' => '']);
 expect($a2['telefoon'] === 'Testfoon A1 Pro' && $a2['notitie'] === '' && (int) $a2['prijs_cents'] === 30000, 'edit only text fields keeps price');
 
 // Aankoop met datum in het verleden, vóór bestaande aankopen.
 $early = moirai_budget_add_purchase('anna@kvt.nl', ['prijs' => '500', 'datum' => '2024-06-01']);
-$a3 = moirai_budget_purchase_row((int) $a['id']);
+$a3 = moirai_budget_computed_purchase((int) $a['id']);
 expect((int) $early['budget_voor_cents'] === 60000 && (int) $early['budget_na_cents'] === 10000, 'past purchase uses budget on its date');
 expect((int) $a3['budget_voor_cents'] === 10000 + 7 * 2500, 'later purchase recalculated after inserting past purchase');
 
 // Verwijderen -> herberekening.
 moirai_budget_delete_purchase((int) $early['id']);
-$a4 = moirai_budget_purchase_row((int) $a['id']);
+$a4 = moirai_budget_computed_purchase((int) $a['id']);
 expect((int) $a4['budget_voor_cents'] === 60000, 'deleting purchase recalculates timeline');
 expect(invalid_message(static fn() => moirai_budget_purchase_row((int) $early['id'])) === LOC('budget.error.purchase_not_found'), 'deleted purchase is gone');
 
@@ -218,9 +218,8 @@ expect($page['page'] === 2 && $page['pages'] === 2 && count($page['items']) === 
 // Instellingen globaal aanpasbaar + herberekening.
 [$status, $body] = moirai_budget_api_dispatch('save_settings', 'POST', ['start_cents' => '650', 'monthly_cents' => '30,00'], $csrf);
 expect($status === 200 && $body['settings']['start_cents'] === 65000 && $body['settings']['monthly_cents'] === 3000, 'settings saved in cents');
-expect((int) moirai_budget_purchase_row($id)['budget_voor_cents'] === 65000, 'settings change recalculates stored purchases');
+expect((int) moirai_budget_computed_purchase($id)['budget_voor_cents'] === 65000, 'settings change recalculates all purchases');
 moirai_budget_save_settings(['start_cents' => '600', 'monthly_cents' => '25']);
-moirai_budget_recalculate_all();
 
 // --- Telefoon koppelen -------------------------------------------------------
 
@@ -335,6 +334,76 @@ expect($status === 200 && $commit['result']['toegevoegd'] === 0, 'import_commit 
 [$status] = moirai_budget_api_dispatch('import_preview', 'POST', [], $csrf, ['file' => ['name' => 'evil.php', 'tmp_name' => $upload, 'error' => UPLOAD_ERR_OK]]);
 expect($status === 400, 'only .xls/.xlsx accepted');
 @unlink($upload);
+
+// --- Naammatching: spaties/hoofdletters, tussenvoegsels, volgorde ----------
+
+$names = [
+    'jan.berg@kvt.nl' => ['email' => 'jan.berg@kvt.nl', 'naam' => 'Jan van den Berg'],
+    'jose@kvt.nl' => ['email' => 'jose@kvt.nl', 'naam' => 'José Müller'],
+    'tom.vries@kvt.nl' => ['email' => 'tom.vries@kvt.nl', 'naam' => "Tom de Vries"],
+    'tom.vries2@kvt.nl' => ['email' => 'tom.vries2@kvt.nl', 'naam' => "Tom van Vries"],
+];
+expect(moirai_budget_name_key('Berg, Jan van den') === moirai_budget_name_key('jan  VAN DEN berg'), 'name key ignores particles, case, spaces and order');
+foreach (['jan  VAN DEN berg', 'Berg, Jan van den', 'Berg van den Jan', 'Jan v.d. Berg', 'Jan Berg'] as $variant) {
+    $m = moirai_budget_match_person($variant, $names);
+    expect($m['zeker'] && $m['email'] === 'jan.berg@kvt.nl', "certain match: {$variant}");
+}
+$m = moirai_budget_match_person('Jose Muller', $names);
+expect($m['zeker'] && $m['email'] === 'jose@kvt.nl', 'accents normalised');
+$m = moirai_budget_match_person('Vries, Tom', $names);
+expect(!$m['zeker'] && $m['email'] === null && count(array_intersect($m['kandidaten'], ['tom.vries@kvt.nl', 'tom.vries2@kvt.nl'])) === 2, 'ambiguous after dropping particles -> unsure with both candidates');
+$m = moirai_budget_match_person('Tom de Vries', $names);
+expect($m['zeker'] && $m['email'] === 'tom.vries@kvt.nl', 'exact name wins over particle-less ambiguity');
+$m = moirai_budget_match_person('Jan', $names);
+expect(!$m['zeker'], 'first name only is never certain');
+$m = moirai_budget_match_person('Lies.Peeters@Hunter.be', $names);
+expect($m['zeker'] && $m['email'] === 'lies.peeters@hunter.be', 'email in Excel is certain, also outside the user list');
+
+// --- Personen buiten de gebruikerslijst ---------------------------------------
+
+$extRows = moirai_budget_import_parse([
+    ['datum', 'persoon', 'soort telefoon', 'bedrag'],
+    ['2025-03-01', 'Lies  Peeters', 'Voorbeeldfoon 12', '650,00'],
+    ['2025-09-01', 'Zonder Functie', 'Voorbeeldfoon 13', '200'],
+]);
+$extPreview = moirai_budget_import_preview($extRows);
+$extByKey = array_column($extPreview['personen'], null, 'key');
+expect(!$extByKey['lies peeters']['zeker'] && $extByKey['lies peeters']['email'] === null, 'unknown name is asked, not guessed');
+expect(str_contains((string) invalid_message(static fn() => moirai_budget_import_commit($extRows, ['lies peeters' => 'lies.peeters@hunter.be'], [])), 'lies.peeters@hunter.be'), 'new outside person needs a start date');
+expect(invalid_message(static fn() => moirai_budget_import_commit($extRows, ['lies peeters' => 'geen-email'], ['geen-email' => '2024-01-01'])) === LOC('budget.error.email_invalid'), 'invalid email in mapping rejected');
+$ext = moirai_budget_import_commit($extRows, ['lies peeters' => 'Lies.Peeters@hunter.be', 'zonder functie' => ''], ['lies.peeters@hunter.be' => '2024-02-01']);
+expect($ext['toegevoegd'] === 1 && $ext['overgeslagen'] === 1, 'outside person imported, skipped person not');
+$lies = moirai_budget_person('lies.peeters@hunter.be');
+expect($lies['naam'] === 'Lies Peeters' && $lies['indiensttreding'] === '2024-02-01', 'outside person created with Excel name and start date');
+expect($lies['purchases'][0]['prijs_cents'] === 65000 && $lies['purchases'][0]['eigen_bijdrage_cents'] === 5000 && $lies['purchases'][0]['budget_na_cents'] === 0, 'own contribution computed: max(0, price - budget)');
+$listed = moirai_budget_list_people('peeters');
+expect($listed['total'] === 1 && $listed['items'][0]['in_directory'] === false && $listed['items'][0]['indiensttreding'] === '2024-02-01', 'outside person appears in the list');
+$m = moirai_budget_match_person('Peeters, Lies', moirai_budget_all_people());
+expect($m['zeker'] && $m['email'] === 'lies.peeters@hunter.be', 're-import matches the created outside person by name');
+
+// Handmatig toevoegen in de UI.
+[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'nieuw.extern@hunter.be', 'naam' => 'Nieuw Extern'], $csrf);
+expect($status === 400 && $body['error'] === LOC('budget.error.start_required'), 'add_person requires start date');
+[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'geen email', 'indiensttreding' => '2025-01-01'], $csrf);
+expect($status === 400 && $body['error'] === LOC('budget.error.email_invalid'), 'add_person rejects invalid email');
+[$status] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'nieuw.extern@hunter.be', 'naam' => 'Nieuw Extern', 'indiensttreding' => '2025-01-01'], 'fout');
+expect($status === 403, 'add_person without valid CSRF token refused');
+[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'Nieuw.Extern@hunter.be', 'naam' => 'Nieuw Extern', 'indiensttreding' => '2025-01-01'], $csrf);
+expect($status === 200 && $body['person']['email'] === 'nieuw.extern@hunter.be' && $body['person']['budget_cents'] === 60000, 'add_person creates outside person');
+
+// --- Migratie: oude opgeslagen kolommen worden veilig verwijderd --------------
+
+$legacy = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$legacy->exec('CREATE TABLE budget_purchases (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, datum TEXT NOT NULL, prijs_cents INTEGER NOT NULL,
+    eigen_bijdrage_cents INTEGER NOT NULL DEFAULT 0, budget_voor_cents INTEGER NOT NULL DEFAULT 0, budget_na_cents INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT \'onbevestigd\', telefoon TEXT NOT NULL DEFAULT \'\', notitie TEXT NOT NULL DEFAULT \'\', phone_imei TEXT, import_hash TEXT,
+    aangemaakt TEXT NOT NULL DEFAULT \'\', aangemaakt_door TEXT NOT NULL DEFAULT \'\')');
+$legacy->exec("INSERT INTO budget_purchases (email, datum, prijs_cents, eigen_bijdrage_cents) VALUES ('anna@kvt.nl', '2025-01-01', 70000, 99999)");
+moirai_migrate_budget_tables($legacy);
+moirai_migrate_budget_tables($legacy);
+$legacyCols = array_column($legacy->query('PRAGMA table_info(budget_purchases)')->fetchAll(), 'name');
+expect(!array_intersect(['eigen_bijdrage_cents', 'budget_voor_cents', 'budget_na_cents'], $legacyCols) && in_array('client_ref', $legacyCols, true), 'migration drops stored columns (idempotent)');
+expect((int) $legacy->query('SELECT prijs_cents FROM budget_purchases')->fetchColumn() === 70000, 'migration keeps purchase data');
 
 @unlink($tmp);
 echo $failures === 0 ? "\nAll telefoonbudget checks passed.\n" : "\n{$failures} failure(s).\n";

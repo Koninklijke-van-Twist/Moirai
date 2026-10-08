@@ -18,8 +18,9 @@ ICT-apparaatbeheer op sleutels.kvt.nl: laptops, telefoons, accessoires en SIM-ka
 
 Tabblad **Telefoonbudget** (`web/telefoonbudget_ui.php`, `web/js/telefoonbudget.js`, API `web/budget_api.php`, logica `web/moirai_budget.php`). Alle bedragen worden in **centen** (integers) opgeslagen en berekend.
 
-- Tabellen `budget_settings`, `budget_people` (e-mail = sleutel, indiensttreding) en `budget_purchases` (AUTOINCREMENT-id, prijs, datum, eigen bijdrage, status, telefoon, notitie, gekoppelde telefoon-IMEI, import-hash). Idempotente migratie `moirai_migrate_budget_tables()` bij de eerste DB-connectie.
-- Rechten: elke actie vereist `moirai_is_admin()`; schrijfacties vereisen POST + `X-CSRF-Token` (sessietoken, `moirai_budget_csrf_token()`).
+- Tabellen `budget_settings`, `budget_people` (e-mail = sleutel, indiensttreding) en `budget_purchases` (AUTOINCREMENT-id, volledig aankoopbedrag, datum, status, telefoon, notitie, gekoppelde telefoon-IMEI, import-hash, client_ref). De eigen bijdrage en budget voor/na worden **niet opgeslagen** maar altijd uit de tijdlijn berekend. Idempotente migratie `moirai_migrate_budget_tables()` bij de eerste DB-connectie (verwijdert ook de oude kolommen `eigen_bijdrage_cents`/`budget_voor_cents`/`budget_na_cents` als die bestaan).
+- Rechten: elke actie vereist `moirai_is_admin()`; schrijfacties vereisen POST + `X-CSRF-Token`.
+- **Personen:** de lijst toont de Moirai-gebruikerslijst plus iedereen in `budget_people` (ook collega's buiten de gebruikerslijst, bijv. @hunter.be of zonder functie). Met *Persoon toevoegen* maak je zo'n persoon handmatig aan op e-mailadres + indiensttreding.
 
 **Rekenregels** (instelbaar via de knop *Instellingen* of constanten in `moirai_budget.php`):
 
@@ -33,13 +34,15 @@ Tabblad **Telefoonbudget** (`web/telefoonbudget_ui.php`, `web/js/telefoonbudget.
 | Onbevestigde aankopen tellen mee | ja (gemarkeerd in de lijst) | `MOIRAI_BUDGET_COUNT_UNCONFIRMED` |
 | Huidige waarde telefoon (alleen informatief) | prijs laatste aankoop − € 25 per hele maand, min. 0 | instelling `depreciation_cents` |
 
-Een aankoop trekt de prijs af; het budget komt niet onder 0 en het tekort wordt als eigen bijdrage bij de aankoop opgeslagen. Elke wijziging (toevoegen, aanpassen, (on)bevestigen, verwijderen, indiensttreding of instellingen wijzigen) herberekent de hele tijdlijn.
+Een aankoop trekt het volledige bedrag af; het budget komt niet onder 0 en de eigen bijdrage is `max(0, prijs − budget op de aankoopdatum)` (berekend, niet opgeslagen). Elke wijziging (toevoegen, aanpassen, (on)bevestigen, verwijderen, indiensttreding of instellingen wijzigen) herberekent de hele tijdlijn.
 
-**Excel-import** (knop *Excel importeren*): `.xls` (BIFF8) en `.xlsx`, gelezen door `web/lib/moirai_spreadsheet.php` (geen externe library). Verwachte kolommen: `datum`, `persoon`, `soort telefoon` (→ Telefoon), `bedrag`, optioneel `status` en een naamloze/`notitie`-kolom (→ Notitie). Preview toont nieuwe/al geïmporteerde/foute regels en per persoon de koppeling (zeker / controleer / niet herkend). Personen zonder indiensttreding krijgen één voor één een modal; pas daarna wordt opgeslagen. Idempotent via `import_hash` (inhoud + volgnummer van identieke regels). Geïmporteerde aankopen zijn **Bevestigd**, tenzij een `status`-kolom "onbevestigd" zegt. Het echte Excel-bestand hoort niet in git; tests gebruiken `tests/fixtures/telefoonbudget_fictief.xls` (verzonnen).
+**Excel-import** (knop *Excel importeren*): `.xls` (BIFF8) en `.xlsx`, gelezen door `web/lib/moirai_spreadsheet.php` (geen externe library). Verwachte kolommen: `datum`, `persoon`, `soort telefoon` (→ Telefoon), `bedrag`, optioneel `status` en een naamloze/`notitie`-kolom (→ Notitie). Preview toont nieuwe/al geïmporteerde/foute regels en per persoon de koppeling (zeker / controleer / niet herkend). Matching op naam: spaties en hoofdletters genormaliseerd, accenten weg, tussenvoegsels (van, de, der, den, ter, …) genegeerd en voor-/achternaamvolgorde ("Berg, Jan van den") maakt niet uit; alleen een unieke treffer of een e-mailadres is "zeker". Voor elke onzekere of onbekende persoon volgt één voor één een modal (suggesties + e-mailadres invullen, of overslaan); een e-mailadres buiten de gebruikerslijst maakt een nieuwe persoon aan met de naam uit de Excel. Daarna krijgen personen zonder indiensttreding één voor één een modal; pas dan wordt opgeslagen. Idempotent via `import_hash` (inhoud + volgnummer van identieke regels). Geïmporteerde aankopen zijn **Bevestigd**, tenzij een `status`-kolom "onbevestigd" zegt. Het echte Excel-bestand hoort niet in git; tests gebruiken `tests/fixtures/telefoonbudget_fictief.xls` (verzonnen).
 
 **Machine-API** (`api.php`, bestaande API-keys): `budget_get` (opvragen per e-mail, case-insensitive) en `budget_add_purchase` (altijd Onbevestigd, idempotent met `client_ref`). Zie `web/docs/api.md`.
 
 Tests: `php tests/telefoonbudget_test.php` en `php tests/telefoonbudget_api_test.php`.
+
+**CSRF (hele app):** alle sessie-gebaseerde schrijfacties (`devices_api.php` save/assign/delete/verify_qr, `print_label.php`, notities via `lib/kvt-chat/api.php`, `budget_api.php`) vereisen het sessietoken (`web/moirai_csrf.php`). `index.php` zet het in `<meta name="moirai-csrf">` en voegt `X-CSRF-Token` automatisch toe aan elke same-origin fetch/XHR die geen GET/HEAD is. `api.php` met API-key heeft geen token nodig. Rooktest tegen een echte `php -S`-server: `php tests/csrf_smoke_test.php`.
 
 ## Lokaal draaien
 

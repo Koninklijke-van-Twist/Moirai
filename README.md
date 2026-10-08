@@ -37,7 +37,9 @@ Een aankoop trekt de prijs af; het budget komt niet onder 0 en het tekort wordt 
 
 **Excel-import** (knop *Excel importeren*): `.xls` (BIFF8) en `.xlsx`, gelezen door `web/lib/moirai_spreadsheet.php` (geen externe library). Verwachte kolommen: `datum`, `persoon`, `soort telefoon` (→ Telefoon), `bedrag`, optioneel `status` en een naamloze/`notitie`-kolom (→ Notitie). Preview toont nieuwe/al geïmporteerde/foute regels en per persoon de koppeling (zeker / controleer / niet herkend). Personen zonder indiensttreding krijgen één voor één een modal; pas daarna wordt opgeslagen. Idempotent via `import_hash` (inhoud + volgnummer van identieke regels). Geïmporteerde aankopen zijn **Bevestigd**, tenzij een `status`-kolom "onbevestigd" zegt. Het echte Excel-bestand hoort niet in git; tests gebruiken `tests/fixtures/telefoonbudget_fictief.xls` (verzonnen).
 
-Tests: `php tests/telefoonbudget_test.php`.
+**Machine-API** (`api.php`, bestaande API-keys): `budget_get` (opvragen per e-mail, case-insensitive) en `budget_add_purchase` (altijd Onbevestigd, idempotent met `client_ref`). Zie `web/docs/api.md`.
+
+Tests: `php tests/telefoonbudget_test.php` en `php tests/telefoonbudget_api_test.php`.
 
 ## Lokaal draaien
 

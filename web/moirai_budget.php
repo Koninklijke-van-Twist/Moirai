@@ -78,9 +78,11 @@ function moirai_migrate_budget_tables(PDO $pdo): void
     ");
     moirai_ensure_column($pdo, 'budget_purchases', 'telefoon', "TEXT NOT NULL DEFAULT ''");
     moirai_ensure_column($pdo, 'budget_purchases', 'notitie', "TEXT NOT NULL DEFAULT ''");
+    moirai_ensure_column($pdo, 'budget_purchases', 'client_ref', 'TEXT');
     $pdo->exec('CREATE INDEX IF NOT EXISTS budget_purchases_email ON budget_purchases (email)');
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS budget_purchases_phone_unique ON budget_purchases (phone_imei)');
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS budget_purchases_import_unique ON budget_purchases (import_hash)');
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS budget_purchases_client_ref_unique ON budget_purchases (client_ref)');
 }
 
 /* ---------------------------------------------------------- settings -- */
@@ -465,6 +467,7 @@ function moirai_budget_public_purchase(array $row): array
         'notitie' => (string) ($row['notitie'] ?? ''),
         'phone_imei' => $row['phone_imei'] !== null ? (string) $row['phone_imei'] : null,
         'geimporteerd' => !empty($row['import_hash']),
+        'client_ref' => isset($row['client_ref']) && $row['client_ref'] !== null ? (string) $row['client_ref'] : null,
     ];
 }
 
@@ -1101,4 +1104,256 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
     } catch (InvalidArgumentException $error) {
         return [400, ['ok' => false, 'error' => $error->getMessage()]];
     }
+}
+
+
+/* ------------------------------------------------- machine-API (api.php) -- */
+
+function moirai_budget_eur(int $cents): string
+{
+    $sign = $cents < 0 ? '-' : '';
+    $cents = abs($cents);
+
+    return $sign . intdiv($cents, 100) . '.' . str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
+}
+
+/** Datum + n maanden, met de dag geklemd op het maandeinde (31 jan + 1 = 28/29 feb). */
+function moirai_budget_add_months(string $date, int $months): string
+{
+    [$y, $m, $d] = array_map('intval', explode('-', $date));
+    $index = $y * 12 + ($m - 1) + $months;
+    $ty = intdiv($index, 12);
+    $tm = $index % 12 + 1;
+
+    return sprintf('%04d-%02d-%02d', $ty, $tm, min($d, moirai_budget_days_in_month($ty, $tm)));
+}
+
+/** Volgende datum waarop de maandelijkse opbouw erbij komt, of null als er (nog) geen opbouw is. */
+function moirai_budget_next_accrual(?string $startDate, array $rows, string $today, array $settings): ?string
+{
+    if ((int) $settings['monthly_cents'] <= 0) {
+        return null;
+    }
+    $timeline = moirai_budget_timeline($startDate, array_values(array_filter($rows, static fn(array $p): bool => (string) $p['datum'] <= $today)), $settings);
+    $anchor = $timeline['last_date'];
+    if ($anchor === null) {
+        if (!MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE || $startDate === null) {
+            return null;
+        }
+        $anchor = $startDate;
+    }
+    $max = (int) $settings['max_cents'];
+    if ($max > 0 && moirai_budget_available_on($startDate, $rows, $today, $settings) >= $max) {
+        return null;
+    }
+
+    return moirai_budget_add_months($anchor, moirai_budget_months_between($anchor, $today) + 1);
+}
+
+function moirai_budget_api_error(string $code, int $status, string $message): array
+{
+    return ['status' => $status, 'body' => ['ok' => false, 'error' => $message, 'error_code' => $code]];
+}
+
+/**
+ * Zoekt de persoon case-insensitive op e-mail. Geeft [email, naam] of een API-fout.
+ *
+ * @return array{0: ?array{email:string, naam:string}, 1: ?array}
+ */
+function moirai_budget_api_resolve_person(mixed $rawEmail, callable $directory): array
+{
+    $email = strtolower(trim((string) $rawEmail));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return [null, moirai_budget_api_error('invalid_email', 400, 'Ongeldig of ontbrekend e-mailadres.')];
+    }
+    $row = moirai_budget_person_row($email);
+    if ($row !== null) {
+        return [['email' => $email, 'naam' => (string) $row['naam']], null];
+    }
+    try {
+        $users = $directory();
+    } catch (Throwable) {
+        return [null, moirai_budget_api_error('users_unavailable', 503, 'Gebruikerslijst is tijdelijk niet beschikbaar; probeer het later opnieuw.')];
+    }
+    foreach ($users as $user) {
+        $normalized = moirai_normalize_user($user);
+        if ($normalized !== null && $normalized['email'] === $email) {
+            return [null, moirai_budget_api_error('no_budget', 404, 'Persoon bekend, maar er is nog geen indiensttreding (telefoonbudget) geregistreerd.')];
+        }
+    }
+
+    return [null, moirai_budget_api_error('person_not_found', 404, 'Persoon niet gevonden.')];
+}
+
+function moirai_budget_rules_summary(array $settings): array
+{
+    return [
+        'Startbudget ' . moirai_budget_format_cents((int) $settings['start_cents']) . ' vanaf de indiensttreding.',
+        'Een aankoop gaat van het budget af; het budget komt niet onder 0. Het tekort is de eigen bijdrage.',
+        'Na elke aankoop komt er ' . moirai_budget_format_cents((int) $settings['monthly_cents']) . ' per hele maand bij (een maand telt zodra de dag van de aankoop is bereikt).',
+        MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE ? 'Ook vóór de eerste aankoop is er opbouw vanaf de indiensttreding.' : 'Vóór de eerste aankoop is er geen opbouw.',
+        (int) $settings['max_cents'] > 0 ? 'Maximum budget: ' . moirai_budget_format_cents((int) $settings['max_cents']) . '.' : 'Er is geen maximum budget.',
+        MOIRAI_BUDGET_COUNT_UNCONFIRMED ? 'Onbevestigde aankopen tellen mee in het budget.' : 'Alleen bevestigde aankopen tellen mee.',
+        'Huidige waarde telefoon (informatief): prijs laatste aankoop min ' . moirai_budget_format_cents((int) $settings['depreciation_cents']) . ' per hele maand, minimaal 0.',
+    ];
+}
+
+function moirai_budget_api_summary(string $email): array
+{
+    $person = moirai_budget_person_row($email);
+    $rows = moirai_budget_purchase_rows($email);
+    $settings = moirai_budget_settings();
+    $today = moirai_today()->format('Y-m-d');
+    $start = (string) $person['indiensttreding'];
+    $budget = moirai_budget_available_on($start, $rows, $today, $settings);
+    $value = moirai_budget_phone_value($rows, $today, $settings);
+    $spent = 0;
+    $own = 0;
+    $purchases = [];
+    foreach ($rows as $row) {
+        $spent += (int) $row['prijs_cents'];
+        $own += (int) $row['eigen_bijdrage_cents'];
+        $device = $row['phone_imei'] !== null ? moirai_get_device('phone', (string) $row['phone_imei']) : null;
+        $purchases[] = [
+            'id' => (int) $row['id'],
+            'datum' => (string) $row['datum'],
+            'prijs_cents' => (int) $row['prijs_cents'],
+            'prijs_eur' => moirai_budget_eur((int) $row['prijs_cents']),
+            'eigen_bijdrage_cents' => (int) $row['eigen_bijdrage_cents'],
+            'eigen_bijdrage_eur' => moirai_budget_eur((int) $row['eigen_bijdrage_cents']),
+            'telefoon' => (string) $row['telefoon'],
+            'notitie' => (string) $row['notitie'],
+            'status' => (string) $row['status'],
+            'status_label' => $row['status'] === MOIRAI_BUDGET_STATUS_CONFIRMED ? 'Bevestigd' : 'Onbevestigd',
+            'toestel' => $row['phone_imei'] !== null ? [
+                'imei' => (string) $row['phone_imei'],
+                'model' => (string) ($device['model'] ?? ''),
+            ] : null,
+            'client_ref' => $row['client_ref'] ?? null,
+        ];
+    }
+
+    return [
+        'email' => $email,
+        'naam' => (string) $person['naam'],
+        'indiensttreding' => $start,
+        'startbudget_cents' => (int) $settings['start_cents'],
+        'startbudget_eur' => moirai_budget_eur((int) $settings['start_cents']),
+        'opbouw_per_maand_cents' => (int) $settings['monthly_cents'],
+        'opbouw_per_maand_eur' => moirai_budget_eur((int) $settings['monthly_cents']),
+        'maximum_cents' => (int) $settings['max_cents'] > 0 ? (int) $settings['max_cents'] : null,
+        'budget_cents' => $budget,
+        'budget_eur' => moirai_budget_eur($budget),
+        'totaal_besteed_cents' => $spent,
+        'totaal_besteed_eur' => moirai_budget_eur($spent),
+        'totale_eigen_bijdrage_cents' => $own,
+        'totale_eigen_bijdrage_eur' => moirai_budget_eur($own),
+        'laatste_aankoop' => $rows !== [] ? (string) end($rows)['datum'] : null,
+        'telefoon_waarde' => $value === null ? null : [
+            'purchase_id' => $value['purchase_id'],
+            'waarde_cents' => $value['value_cents'],
+            'waarde_eur' => moirai_budget_eur($value['value_cents']),
+            'maanden' => $value['months'],
+        ],
+        'volgende_opbouw' => moirai_budget_next_accrual($start, $rows, $today, $settings),
+        'peildatum' => $today,
+        'aankopen' => $purchases,
+        'rekenregels' => moirai_budget_rules_summary($settings),
+    ];
+}
+
+/** api.php action budget_get. */
+function moirai_budget_api_get(mixed $email, callable $directory): array
+{
+    [$person, $error] = moirai_budget_api_resolve_person($email, $directory);
+    if ($error !== null) {
+        return $error;
+    }
+
+    return ['status' => 200, 'body' => ['ok' => true] + moirai_budget_api_summary($person['email'])];
+}
+
+/**
+ * api.php action budget_add_purchase. Altijd status Onbevestigd. Idempotent met client_ref.
+ */
+function moirai_budget_api_add_purchase(array $input, callable $directory, string $actor): array
+{
+    [$person, $error] = moirai_budget_api_resolve_person($input['email'] ?? '', $directory);
+    if ($error !== null) {
+        return $error;
+    }
+    $email = $person['email'];
+    $clientRef = trim((string) ($input['client_ref'] ?? ''));
+    if (mb_strlen($clientRef) > 200) {
+        return moirai_budget_api_error('invalid_input', 400, 'client_ref is te lang (max. 200 tekens).');
+    }
+    if ($clientRef !== '') {
+        $stmt = moirai_db()->prepare('SELECT * FROM budget_purchases WHERE client_ref = :r');
+        $stmt->execute(['r' => $clientRef]);
+        $existing = $stmt->fetch();
+        if ($existing) {
+            if ($existing['email'] !== $email) {
+                return moirai_budget_api_error('client_ref_conflict', 409, 'Deze client_ref is al gebruikt voor een andere persoon.');
+            }
+            return ['status' => 200, 'body' => moirai_budget_api_purchase_result((int) $existing['id'], true)];
+        }
+    }
+    try {
+        $price = moirai_budget_parse_cents($input['prijs'] ?? $input['price'] ?? '');
+    } catch (InvalidArgumentException) {
+        return moirai_budget_api_error('invalid_amount', 400, 'Ongeldige of ontbrekende prijs.');
+    }
+    try {
+        $date = moirai_budget_validate_date($input['datum'] ?? $input['date'] ?? '', true);
+    } catch (InvalidArgumentException) {
+        return moirai_budget_api_error('invalid_date', 400, 'Ongeldige datum; gebruik JJJJ-MM-DD.');
+    }
+    $stmt = moirai_db()->prepare(
+        'INSERT INTO budget_purchases (email, datum, prijs_cents, status, telefoon, notitie, client_ref, aangemaakt, aangemaakt_door)
+         VALUES (:e, :d, :p, :s, :t, :n, :r, :c, :by)'
+    );
+    try {
+        $stmt->execute([
+            'e' => $email,
+            'd' => $date,
+            'p' => $price,
+            's' => MOIRAI_BUDGET_STATUS_UNCONFIRMED,
+            't' => moirai_budget_clean_text($input['telefoon'] ?? $input['phone'] ?? '', MOIRAI_BUDGET_TEXT_MAX),
+            'n' => moirai_budget_clean_text($input['notitie'] ?? $input['note'] ?? '', MOIRAI_BUDGET_NOTE_MAX, true),
+            'r' => $clientRef !== '' ? $clientRef : null,
+            'c' => date('c'),
+            'by' => $actor,
+        ]);
+    } catch (PDOException $error) {
+        // Race op dezelfde client_ref: de andere request heeft hem net opgeslagen.
+        if ($clientRef !== '' && str_contains($error->getMessage(), 'UNIQUE')) {
+            return moirai_budget_api_add_purchase($input, $directory, $actor);
+        }
+        throw $error;
+    }
+    $id = (int) moirai_db()->lastInsertId();
+    moirai_budget_recalculate($email);
+
+    return ['status' => 201, 'body' => moirai_budget_api_purchase_result($id, false)];
+}
+
+function moirai_budget_api_purchase_result(int $id, bool $replay): array
+{
+    $row = moirai_budget_purchase_row($id);
+    $summary = moirai_budget_api_summary((string) $row['email']);
+    $purchase = array_values(array_filter($summary['aankopen'], static fn(array $p): bool => $p['id'] === $id))[0];
+
+    return [
+        'ok' => true,
+        'idempotent_replay' => $replay,
+        'aankoop' => $purchase + [
+            'budget_voor_cents' => (int) $row['budget_voor_cents'],
+            'budget_voor_eur' => moirai_budget_eur((int) $row['budget_voor_cents']),
+            'budget_na_cents' => (int) $row['budget_na_cents'],
+            'budget_na_eur' => moirai_budget_eur((int) $row['budget_na_cents']),
+        ],
+        'eigen_bijdrage_cents' => $purchase['eigen_bijdrage_cents'],
+        'eigen_bijdrage_eur' => $purchase['eigen_bijdrage_eur'],
+        'budget' => $summary,
+    ];
 }

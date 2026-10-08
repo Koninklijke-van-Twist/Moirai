@@ -260,6 +260,8 @@ function moirai_api_help(): array
             ['name' => 'notes_list', 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Device notes', 'params' => ['type', 'id']],
             ['name' => 'notes_add', 'auth' => true, 'method' => ['POST'], 'ui' => 'Add device note', 'params' => ['type', 'id', 'message_text|message']],
             ['name' => 'notes_edit', 'auth' => true, 'method' => ['POST'], 'ui' => 'Edit device note', 'params' => ['type', 'id', 'message_id', 'message_text|message']],
+            ['name' => 'budget_get', 'alias' => ['budget'], 'auth' => true, 'method' => ['GET', 'POST'], 'ui' => 'Telefoonbudget of one person (read-only)', 'params' => ['email']],
+            ['name' => 'budget_add_purchase', 'alias' => ['budget_purchase_add'], 'auth' => true, 'method' => ['POST'], 'ui' => 'Register phone purchase (always Onbevestigd; confirm/edit/delete only in UI)', 'params' => ['email', 'prijs|price', 'datum|date (default today)', 'telefoon|phone', 'notitie|note', 'client_ref (idempotency)']],
             ['name' => 'notes_delete', 'auth' => true, 'method' => ['POST'], 'ui' => 'Delete device note', 'params' => ['type', 'id', 'message_id']],
         ],
         'types' => ['laptop', 'phone', 'accessory', 'simcard'],
@@ -290,9 +292,11 @@ function moirai_api_help(): array
         ],
         'errors' => [
             '401' => ['unauthorized', 'api_key_missing', 'api_key_query'],
-            '400' => ['unknown_action', 'invalid_input', 'print_not_supported', 'validation errors from moirai_data'],
+            '400' => ['unknown_action', 'invalid_input', 'print_not_supported', 'invalid_email', 'invalid_amount', 'invalid_date', 'validation errors from moirai_data'],
             '403' => ['forbidden'],
-            '404' => ['device_not_found', 'note_not_found'],
+            '404' => ['device_not_found', 'note_not_found', 'person_not_found', 'no_budget'],
+            '409' => ['client_ref_conflict'],
+            '503' => ['users_unavailable'],
             '405' => ['method_not_allowed'],
             '500' => ['generic'],
         ],
@@ -584,7 +588,7 @@ function moirai_api_dispatch(string $action): array
     $mutations = [
         'create', 'update', 'save', 'set_condition', 'set_physical_state', 'set_fysieke_staat',
         'assign', 'unassign', 'set_reserve', 'set_unavailable', 'delete', 'verify_qr',
-        'notes_add', 'notes_edit', 'notes_delete',
+        'notes_add', 'notes_edit', 'notes_delete', 'budget_add_purchase', 'budget_purchase_add',
     ];
     $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
     if (in_array($action, $mutations, true) && !in_array($method, ['POST', 'PUT', 'PATCH'], true)) {
@@ -592,6 +596,28 @@ function moirai_api_dispatch(string $action): array
     }
 
     switch ($action) {
+        case 'budget':
+        case 'budget_get':
+            return moirai_budget_api_get(
+                moirai_api_request_string('email'),
+                static fn(): array => moirai_api_directory_users()
+            );
+
+        case 'budget_add_purchase':
+        case 'budget_purchase_add':
+            return moirai_budget_api_add_purchase(
+                [
+                    'email' => moirai_api_request_string('email'),
+                    'prijs' => moirai_api_request_string('prijs') !== '' ? moirai_api_request_string('prijs') : moirai_api_request_string('price'),
+                    'datum' => moirai_api_request_string('datum') !== '' ? moirai_api_request_string('datum') : moirai_api_request_string('date'),
+                    'telefoon' => moirai_api_request_string('telefoon') !== '' ? moirai_api_request_string('telefoon') : moirai_api_request_string('phone'),
+                    'notitie' => moirai_api_request_string('notitie') !== '' ? moirai_api_request_string('notitie') : moirai_api_request_string('note'),
+                    'client_ref' => moirai_api_request_string('client_ref'),
+                ],
+                static fn(): array => moirai_api_directory_users(),
+                moirai_current_user_email()
+            );
+
         case 'whoami':
             return moirai_api_ok([
                 'key_label' => (string) ($_SESSION['user']['name'] ?? ''),

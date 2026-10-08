@@ -38,7 +38,7 @@ Do **not** put keys in the querystring. Any `?api_key=` — including on `help`/
 
 ## Request format
 
-- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos` / `print_label`
+- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos` / `print_label`, `budget_get`
 - **POST** — JSON (`Content-Type: application/json`) or form-data. Required for all mutations
 - Action via `action` (query or body)
 - Responses are JSON UTF-8 with `ok` (bool)
@@ -225,13 +225,120 @@ curl "https://sleutels.kvt.nl/moirai/api.php?action=label_pos&type=laptop&id=SN-
 
 Notes: `notes_list` / `notes_add` / `notes_edit` / `notes_delete` with `type`, `id`, and for add/edit `message` / `message_text`. The API-key label is the note author.
 
+## Telefoonbudget (Metis / Asclepius)
+
+Gebruikt dezelfde API-keys en dezelfde authenticatie als de rest van `api.php`. Bedragen staan in de response altijd twee keer: in **centen** (integer, `*_cents`) en in **euro's als string met 2 decimalen** (`*_eur`, bijv. `"475.00"`). Datums zijn `JJJJ-MM-DD`.
+
+Via de API kun je alleen **opvragen** en **een aankoop toevoegen**. Zo'n aankoop krijgt altijd de status **Onbevestigd**. Bevestigen, aanpassen en verwijderen kan alleen een ICT-admin in de UI (tab Telefoonbudget).
+
+### `budget_get` (alias `budget`), GET of POST
+
+| Parameter | Verplicht | |
+| --- | --- | --- |
+| `email` | ja | Wordt case-insensitive gematcht (`Jan.Jansen@KVT.nl` = `jan.jansen@kvt.nl`) |
+
+```bash
+curl -s -H "X-API-Key: $MOIRAI_API_KEY" \
+  "https://sleutels.kvt.nl/moirai/api.php?action=budget_get&email=jan.jansen@kvt.nl"
+```
+
+```json
+{
+  "ok": true,
+  "email": "jan.jansen@kvt.nl",
+  "naam": "Jan Jansen",
+  "indiensttreding": "2024-03-01",
+  "startbudget_cents": 60000, "startbudget_eur": "600.00",
+  "opbouw_per_maand_cents": 2500, "opbouw_per_maand_eur": "25.00",
+  "maximum_cents": null,
+  "budget_cents": 47500, "budget_eur": "475.00",
+  "totaal_besteed_cents": 80000, "totaal_besteed_eur": "800.00",
+  "totale_eigen_bijdrage_cents": 17500, "totale_eigen_bijdrage_eur": "175.00",
+  "laatste_aankoop": "2025-02-28",
+  "telefoon_waarde": { "purchase_id": 2, "waarde_cents": 0, "waarde_eur": "0.00", "maanden": 19 },
+  "volgende_opbouw": "2026-10-28",
+  "peildatum": "2026-10-08",
+  "aankopen": [
+    {
+      "id": 2, "datum": "2025-02-28",
+      "prijs_cents": 35000, "prijs_eur": "350.00",
+      "eigen_bijdrage_cents": 17500, "eigen_bijdrage_eur": "175.00",
+      "telefoon": "Voorbeeldfoon 15", "notitie": "Asclepius #4711",
+      "status": "onbevestigd", "status_label": "Onbevestigd",
+      "toestel": { "imei": "350000000000001", "model": "Voorbeeldfoon 15" },
+      "client_ref": "asclepius-4711"
+    }
+  ],
+  "rekenregels": ["Startbudget € 600,00 vanaf de indiensttreding.", "…"]
+}
+```
+
+- `aankopen` staan op datum (oudste eerst). `toestel` is `null` zolang er geen telefoon uit het tabblad Telefoons aan gekoppeld is.
+- `volgende_opbouw` is de datum waarop de volgende opbouw van € 25 erbij komt. Die is `null` vóór de eerste aankoop (dan is er geen opbouw) of als het maximum bereikt is.
+- `telefoon_waarde` is alleen informatief: de prijs van de laatste aankoop min € 25 per hele maand, minimaal 0. Het telt niet mee in het budget.
+
+### `budget_add_purchase` (alias `budget_purchase_add`), alleen POST
+
+| Veld | Verplicht | |
+| --- | --- | --- |
+| `email` | ja | Case-insensitive |
+| `prijs` (of `price`) | ja | `350`, `"349.95"` of `"349,95"`; wordt omgerekend naar centen |
+| `datum` (of `date`) | nee | `JJJJ-MM-DD`, standaard vandaag. Voor een datum in het verleden wordt gerekend met het budget op die datum |
+| `telefoon` (of `phone`) | nee | Vrije tekst, max. 200 tekens |
+| `notitie` (of `note`) | nee | Vrije tekst, meerdere regels, max. 4000 tekens |
+| `client_ref` | nee | Idempotentiesleutel (max. 200 tekens), bijv. `asclepius-<ticketnummer>` |
+
+Een eventueel meegestuurde `status` wordt genegeerd: de aankoop is altijd `onbevestigd`.
+
+```bash
+curl -s -X POST "https://sleutels.kvt.nl/moirai/api.php?action=budget_add_purchase" \
+  -H "X-API-Key: $MOIRAI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"email":"lies.peeters@hunter.be","prijs":"649.00","datum":"2026-10-08","telefoon":"Voorbeeldfoon 16","notitie":"Asclepius #4712","client_ref":"asclepius-4712"}'
+```
+
+Een nieuwe aankoop geeft `201`. Herhaal je hetzelfde verzoek met dezelfde `client_ref`, dan krijg je `200` met `"idempotent_replay": true` en de bestaande aankoop terug, zonder dubbele aankoop.
+
+```json
+{
+  "ok": true,
+  "idempotent_replay": false,
+  "aankoop": {
+    "id": 3, "datum": "2026-10-08", "prijs_cents": 64900, "prijs_eur": "649.00",
+    "eigen_bijdrage_cents": 4900, "eigen_bijdrage_eur": "49.00",
+    "telefoon": "Voorbeeldfoon 16", "notitie": "Asclepius #4712",
+    "status": "onbevestigd", "status_label": "Onbevestigd", "toestel": null,
+    "client_ref": "asclepius-4712",
+    "budget_voor_cents": 60000, "budget_voor_eur": "600.00",
+    "budget_na_cents": 0, "budget_na_eur": "0.00"
+  },
+  "eigen_bijdrage_cents": 4900, "eigen_bijdrage_eur": "49.00",
+  "budget": { "…": "zelfde velden als budget_get, na deze aankoop" }
+}
+```
+
+### Foutcodes telefoonbudget
+
+| HTTP | `error_code` | Betekenis |
+| --- | --- | --- |
+| `400` | `invalid_email` | E-mail ontbreekt of is ongeldig |
+| `400` | `invalid_amount` / `invalid_date` | Prijs of datum ongeldig |
+| `401` | `api_key_missing` / `unauthorized` / `api_key_query` | Authenticatie (zie boven) |
+| `404` | `person_not_found` | E-mail onbekend in de gebruikerslijst en in het telefoonbudget |
+| `404` | `no_budget` | Persoon is bekend, maar er is nog geen indiensttreding geregistreerd. ICT moet die eerst in de UI invullen |
+| `405` | `method_not_allowed` | `budget_add_purchase` via GET |
+| `409` | `client_ref_conflict` | De `client_ref` is al gebruikt voor een andere persoon |
+| `503` | `users_unavailable` | Gebruikerslijst (Graph) tijdelijk onbereikbaar, en de persoon heeft nog geen budget |
+
+
 ## Errors
 
 | HTTP | `error_code` |
 | --- | --- |
 | `401` | `unauthorized`, `api_key_missing`, `api_key_query` |
 | `405` | `method_not_allowed` |
-| `400` | `unknown_action`, `invalid_input`, plus validation messages from `moirai_data` (model/serial/IMEI/date/condition/…) |
+| `400` | `unknown_action`, `invalid_input`, `invalid_email`, `invalid_amount`, `invalid_date`, plus validation messages from `moirai_data` (model/serial/IMEI/date/condition/…) |
 | `403` | `forbidden` |
-| `404` | `device_not_found`, `note_not_found` |
+| `404` | `device_not_found`, `note_not_found`, `person_not_found`, `no_budget` |
+| `409` | `client_ref_conflict` |
+| `503` | `users_unavailable` |
 | `500` | `generic` |

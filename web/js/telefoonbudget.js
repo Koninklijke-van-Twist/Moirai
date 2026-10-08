@@ -310,6 +310,7 @@
             var m = known[email] || { email: email, naam: email, indiensttreding: null };
             if (m.indiensttreding) { return; }
             if (!byEmail[email]) { byEmail[email] = { email: email, naam: m.naam || email, bron: p.bron, aantal: 0, eerste: p.eerste_datum }; }
+            else if (byEmail[email].bron.indexOf(p.bron) === -1) { byEmail[email].bron += '", "' + p.bron; }
             byEmail[email].aantal += p.nieuw;
             if (p.eerste_datum < byEmail[email].eerste) { byEmail[email].eerste = p.eerste_datum; }
         });
@@ -324,7 +325,6 @@
         if (!next) { close('budget-start-modal'); commitImport(); return; }
         document.getElementById('budget-start-text').textContent = t('budget.import.ask_start_body', next.naam, next.email, next.bron, next.aantal, date(next.eerste));
         startForm.elements.indiensttreding.value = '';
-        startForm.elements.indiensttreding.max = next.eerste;
         open('budget-start-modal');
         startForm.elements.indiensttreding.focus();
     }

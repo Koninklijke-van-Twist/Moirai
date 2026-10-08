@@ -191,7 +191,7 @@ $csrf = moirai_budget_csrf_token();
 [$status] = moirai_budget_api_dispatch('people', 'GET', [], '');
 expect($status === 200, 'admin can list people');
 $_SESSION['user'] = ['email' => 'gewoon@kvt.nl', 'name' => 'Geen Admin'];
-foreach (['people', 'person', 'add_purchase', 'confirm', 'delete_purchase', 'import_commit', 'save_settings', 'link_phone'] as $action) {
+foreach (['people', 'person', 'add_purchase', 'confirm', 'delete_purchase', 'import_commit', 'save_settings', 'link_phone', 'hire_suggestion', 'hire_diagnose'] as $action) {
     [$status, $body] = moirai_budget_api_dispatch($action, 'POST', ['email' => 'anna@kvt.nl', 'id' => $id, 'prijs' => '10'], $csrf);
     expect($status === 403 && $body['ok'] === false, "non-admin forbidden: {$action}");
 }
@@ -391,6 +391,108 @@ expect($status === 403, 'add_person without valid CSRF token refused');
 [$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'Nieuw.Extern@hunter.be', 'naam' => 'Nieuw Extern', 'indiensttreding' => '2025-01-01'], $csrf);
 expect($status === 200 && $body['person']['email'] === 'nieuw.extern@hunter.be' && $body['person']['budget_cents'] === 60000, 'add_person creates outside person');
 
+// --- employeeHireDate uit Microsoft Graph: alleen voorstel + diagnose ---------
+
+expect(moirai_budget_graph_date('2019-03-31T22:00:00Z') === '2019-04-01', 'graph date converted to Europe/Amsterdam');
+expect(moirai_budget_graph_date('2021-06-01T00:00:00Z') === '2021-06-01', 'graph date at UTC midnight keeps day');
+expect(moirai_budget_graph_date('') === null && moirai_budget_graph_date(null) === null, 'empty graph date is null');
+expect(moirai_budget_graph_date('geen datum') === null, 'invalid graph date is null');
+expect(moirai_budget_graph_date('0001-01-01T00:00:00Z') === null, 'graph placeholder date ignored');
+
+$graphUrls = [];
+$GLOBALS['moirai_graph_fetch'] = static function (string $url) use (&$graphUrls): array {
+    $graphUrls[] = $url;
+    if (str_contains($url, 'skiptoken')) {
+        return ['value' => [['id' => 'u3', 'mail' => 'carla@kvt.nl', 'employeeHireDate' => null]]];
+    }
+    return [
+        'value' => [
+            ['id' => 'u2', 'mail' => 'Bram@KVT.nl', 'employeeHireDate' => '2018-08-31T22:00:00Z'],
+            ['id' => 'u4', 'mail' => '', 'employeeHireDate' => '2020-01-01T00:00:00Z'],
+        ],
+        '@odata.nextLink' => 'https://graph.microsoft.com/v1.0/users?$skiptoken=fictief',
+    ];
+};
+$hireDates = moirai_budget_hire_dates(true);
+expect($hireDates === ['bram@kvt.nl' => '2018-09-01'], 'hire dates: paged, lowercased, only filled values with mail');
+expect(str_contains($graphUrls[0], '$select=id,mail,employeeHireDate') && str_contains($graphUrls[0], 'accountEnabled'), 'hire dates request selects employeeHireDate');
+expect(count($graphUrls) === 2, 'hire dates follows nextLink');
+$graphUrls = [];
+moirai_budget_hire_dates();
+expect($graphUrls === [], 'hire dates memoised (no extra Graph call)');
+expect(is_file(moirai_budget_hire_cache_file()), 'hire dates cached next to the database');
+
+$bramBefore = $pdo->query("SELECT indiensttreding FROM budget_people WHERE email = 'bram@kvt.nl'")->fetchColumn();
+[$status, $body] = moirai_budget_api_dispatch('hire_suggestion', 'GET', ['email' => ' BRAM@kvt.nl '], '');
+expect($status === 200 && $body['voorstel'] === '2018-09-01' && $body['email'] === 'bram@kvt.nl', 'hire_suggestion returns proposal (no CSRF needed for GET)');
+[$status, $body] = moirai_budget_api_dispatch('hire_suggestion', 'GET', ['email' => 'carla@kvt.nl'], '');
+expect($status === 200 && $body['voorstel'] === null, 'hire_suggestion null when field empty');
+[$status, $body] = moirai_budget_api_dispatch('hire_suggestion', 'GET', ['email' => 'geen email'], '');
+expect($status === 200 && $body['ok'] === true && $body['voorstel'] === null, 'hire_suggestion never errors on bad input (silently no proposal)');
+[$status, $body] = moirai_budget_api_dispatch('person', 'GET', ['email' => 'bram@kvt.nl'], '');
+expect($status === 200 && $body['person']['indiensttreding_voorstel'] === '2018-09-01', 'person detail carries indiensttreding_voorstel');
+$bramAfter = $pdo->query("SELECT indiensttreding FROM budget_people WHERE email = 'bram@kvt.nl'")->fetchColumn();
+expect($bramBefore === $bramAfter, 'proposal is never saved automatically');
+[$status, $body] = moirai_budget_api_dispatch('set_start', 'POST', ['email' => 'bram@kvt.nl', 'naam' => 'Bram Voorbeeld', 'indiensttreding' => '2019-02-01'], $csrf);
+expect($status === 200 && $body['person']['indiensttreding'] === '2019-02-01' && $body['person']['indiensttreding_voorstel'] === '2018-09-01', 'set_start saves the chosen date, proposal stays a proposal');
+
+// Graph niet bereikbaar: geen voorstel, niets breekt.
+$GLOBALS['moirai_graph_fetch'] = static function (string $url): array { throw new RuntimeException('graph_http_403:Authorization_RequestDenied'); };
+expect(moirai_budget_hire_dates(true) === [], 'Graph failure gives empty proposals');
+[$status, $body] = moirai_budget_api_dispatch('person', 'GET', ['email' => 'carla@kvt.nl'], '');
+expect($status === 200 && $body['person']['indiensttreding_voorstel'] === null, 'person detail still works when Graph fails');
+$cache = json_decode((string) file_get_contents(moirai_budget_hire_cache_file()), true);
+expect(is_array($cache) && $cache['fout'] === 'graph_http_403:Authorization_RequestDenied' && $cache['datums'] === [], 'failure cached briefly (no retry storm)');
+[$status, $body] = moirai_budget_api_dispatch('hire_suggestion', 'GET', ['email' => 'bram@kvt.nl'], '');
+expect($status === 200 && $body['ok'] === true && $body['voorstel'] === null && !isset($body['error']), 'hire_suggestion silent when Graph fails');
+$GLOBALS['moirai_graph_fetch'] = static function (string $url): array { return ['value' => [['id' => 'u2', 'mail' => 'bram@kvt.nl']]]; };
+expect(moirai_budget_hire_dates(true) === [], 'missing employeeHireDate field gives no proposal');
+$GLOBALS['moirai_graph_fetch'] = static function (string $url): array { return ['error' => ['code' => 'Request_Timeout']]; };
+expect(moirai_budget_hire_dates(true) === [], 'unexpected Graph response gives no proposal');
+
+// Diagnose: alleen aantallen.
+$diagUsers = [
+    ['id' => 'd1', 'mail' => 'een@kvt.nl', 'jobTitle' => 'Monteur', 'employeeHireDate' => '2004-02-29T23:00:00Z'],
+    ['id' => 'd2', 'mail' => 'twee@kvt.nl', 'jobTitle' => 'Planner', 'employeeHireDate' => '2022-05-01T00:00:00Z'],
+    ['id' => 'd3', 'mail' => 'drie@kvt.nl', 'jobTitle' => 'Verkoper', 'employeeHireDate' => null],
+    ['id' => 'd4', 'mail' => 'vier@kvt.nl', 'jobTitle' => '', 'employeeHireDate' => '1999-01-01T00:00:00Z'],
+];
+$GLOBALS['moirai_graph_roles'] = ['User.Read.All'];
+$GLOBALS['moirai_graph_fetch'] = static function (string $url) use ($diagUsers): array {
+    if (str_contains($url, 'employeeLeaveDateTime')) {
+        throw new RuntimeException('graph_http_403:Authorization_RequestDenied');
+    }
+    return ['value' => $diagUsers];
+};
+$diag = moirai_budget_hire_diagnose();
+expect($diag['ok'] && $diag['totaal'] === 3 && $diag['met_hire_date'] === 2, 'diagnose counts only users Moirai shows (with job title)');
+expect($diag['jaar_min'] === 2004 && $diag['jaar_max'] === 2022, 'diagnose reports year range (Amsterdam date)');
+expect($diag['leave']['leesbaar'] === false && str_starts_with((string) $diag['leave']['fout'], 'graph_http_403'), 'diagnose: employeeLeaveDateTime 403 reported as not readable');
+expect($diag['rechten'] === ['User.Read.All'], 'diagnose shows app roles');
+$diagJson = json_encode($diag);
+expect(!preg_match('/@|\d{4}-\d{2}-\d{2}|Monteur|d1/', $diagJson), 'diagnose output has no names, mails or dates per person');
+expect(!is_file(moirai_budget_hire_cache_file()), 'diagnose clears the proposal cache');
+[$status, $body] = moirai_budget_api_dispatch('hire_diagnose', 'GET', [], '');
+expect($status === 200 && $body['ok'] && $body['totaal'] === 3, 'hire_diagnose via dispatcher (GET, admin)');
+
+$GLOBALS['moirai_graph_fetch'] = static function (string $url) use ($diagUsers): array {
+    if (str_contains($url, 'employeeLeaveDateTime')) {
+        return ['value' => [['id' => 'd1', 'employeeLeaveDateTime' => '2027-01-01T00:00:00Z'], ['id' => 'd4', 'employeeLeaveDateTime' => '2027-01-01T00:00:00Z']]];
+    }
+    return ['value' => $diagUsers];
+};
+$diag = moirai_budget_hire_diagnose();
+expect($diag['leave']['leesbaar'] === false && $diag['leave']['fout'] === 'missing_role:User-LifeCycleInfo.Read.All', 'diagnose: leave not trusted without lifecycle role');
+$GLOBALS['moirai_graph_roles'] = ['User.Read.All', 'User-LifeCycleInfo.Read.All'];
+$diag = moirai_budget_hire_diagnose();
+expect($diag['leave']['leesbaar'] === true && $diag['leave']['gevuld'] === 1, 'diagnose: leave counted for shown users with lifecycle role');
+
+$GLOBALS['moirai_graph_fetch'] = static function (string $url): array { throw new RuntimeException('graph_not_configured'); };
+[$status, $body] = moirai_budget_api_dispatch('hire_diagnose', 'GET', [], '');
+expect($status === 200 && $body['ok'] === false && $body['fout'] === 'graph_not_configured' && str_contains($body['error'], 'graph_not_configured'), 'hire_diagnose reports Graph failure');
+unset($GLOBALS['moirai_graph_fetch'], $GLOBALS['moirai_graph_roles']);
+@unlink(moirai_budget_hire_cache_file());
+
 // --- Migratie: oude opgeslagen kolommen worden veilig verwijderd --------------
 
 $legacy = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
@@ -406,5 +508,6 @@ expect(!array_intersect(['eigen_bijdrage_cents', 'budget_voor_cents', 'budget_na
 expect((int) $legacy->query('SELECT prijs_cents FROM budget_purchases')->fetchColumn() === 70000, 'migration keeps purchase data');
 
 @unlink($tmp);
+@unlink($tmp . '.hire_dates.json');
 echo $failures === 0 ? "\nAll telefoonbudget checks passed.\n" : "\n{$failures} failure(s).\n";
 exit($failures === 0 ? 0 : 1);

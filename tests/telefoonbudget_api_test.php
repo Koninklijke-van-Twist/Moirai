@@ -179,6 +179,29 @@ $r = api_call('budget_get', ['email' => 'piet.extern@hunter.be']);
 expect($r['body']['aankopen'][0]['eigen_bijdrage_cents'] === 0 && $r['body']['totale_eigen_bijdrage_cents'] === 0, 'own contribution recomputed after settings change');
 moirai_budget_save_settings(['start_cents' => '600', 'monthly_cents' => '25']);
 
+// employeeHireDate-diagnose via API: alleen aantallen.
+expect(in_array('budget_hire_stats', $names, true), 'help lists budget_hire_stats');
+$GLOBALS['moirai_graph_roles'] = ['User.Read.All'];
+$GLOBALS['moirai_graph_fetch'] = static function (string $url): array {
+    if (str_contains($url, 'employeeLeaveDateTime')) {
+        throw new RuntimeException('graph_http_403:Authorization_RequestDenied');
+    }
+    return ['value' => [
+        ['id' => 'x1', 'mail' => 'x1@kvt.nl', 'jobTitle' => 'Monteur', 'employeeHireDate' => '2015-03-01T00:00:00Z'],
+        ['id' => 'x2', 'mail' => 'x2@kvt.nl', 'jobTitle' => 'Planner', 'employeeHireDate' => null],
+    ]];
+};
+$r = api_call('budget_hire_stats');
+expect($r['status'] === 200 && $r['body']['totaal'] === 2 && $r['body']['met_hire_date'] === 1 && $r['body']['jaar_min'] === 2015, 'budget_hire_stats returns counts');
+expect(!preg_match('/@|\d{4}-\d{2}-\d{2}/', (string) json_encode($r['body'])), 'budget_hire_stats has no mails or dates per person');
+$r = api_call('budget_hire_stats', [], 'POST');
+expect($r['status'] === 200 && $r['body']['totaal'] === 2, 'budget_hire_stats also via POST (read-only, like budget_get)');
+$GLOBALS['moirai_graph_fetch'] = static function (string $url): array { throw new RuntimeException('graph_http_403:Authorization_RequestDenied'); };
+$r = api_call('budget_hire_stats');
+expect($r['status'] === 502 && $r['body']['error_code'] === 'graph_failed' && $r['body']['ok'] === false, 'budget_hire_stats Graph failure -> 502 graph_failed');
+unset($GLOBALS['moirai_graph_fetch'], $GLOBALS['moirai_graph_roles']);
+@unlink($tmp . '.hire_dates.json');
+
 expect(moirai_budget_add_months('2025-01-31', 1) === '2025-02-28' && moirai_budget_add_months('2024-01-31', 1) === '2024-02-29', 'add_months clamps to month end');
 
 @unlink($tmp);

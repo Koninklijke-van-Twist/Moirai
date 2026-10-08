@@ -40,7 +40,7 @@ Do **not** put keys in the querystring. Any `?api_key=` — including on `help`/
 
 ## Request format
 
-- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos` / `print_label`, `budget_get`
+- **GET** — query parameters (never `api_key`). Read actions: `help`, `list`, `get`, `filters`, `lookups`, `users`, `whoami`, `notes_list`, `label_pos` / `print_label`, `budget_get`, `budget_hire_stats`
 - **POST** — JSON (`Content-Type: application/json`) or form-data. Required for all mutations
 - Action via `action` (query or body)
 - Responses are JSON UTF-8 with `ok` (bool)
@@ -322,6 +322,29 @@ Een nieuwe aankoop geeft `201`. Herhaal je hetzelfde verzoek met dezelfde `clien
 }
 ```
 
+### `budget_hire_stats`, GET (of POST)
+
+Diagnose of Microsoft 365 het veld `employeeHireDate` gevuld heeft. Geeft **alleen aantallen** terug, geen namen, e-mailadressen of datums per persoon. Moirai gebruikt `employeeHireDate` in de UI alleen als voorstel voor de indiensttreding (vooringevuld, nooit automatisch opgeslagen).
+
+```bash
+curl -s -H "X-API-Key: $MOIRAI_API_KEY" "https://sleutels.kvt.nl/moirai/api.php?action=budget_hire_stats"
+```
+
+```json
+{
+  "ok": true,
+  "totaal": 231,
+  "met_hire_date": 180,
+  "jaar_min": 1998,
+  "jaar_max": 2026,
+  "leave": { "leesbaar": false, "gevuld": null, "fout": "graph_http_403:Authorization_RequestDenied" },
+  "rechten": ["User.Read.All"],
+  "fout": null
+}
+```
+
+(Voorbeeldwaarden.) `totaal` telt de gebruikers die Moirai toont (actief, met functietitel). `jaar_min`/`jaar_max` zijn `null` als niemand het veld gevuld heeft. `leave.leesbaar` is alleen `true` als de app ook **User-LifeCycleInfo.Read.All** heeft; voor `employeeHireDate` volstaat **User.Read.All**. `rechten` zijn de applicatierechten (roles) uit het Graph-token. Graph-fout (geen recht, niet geconfigureerd): `502` met `error_code: "graph_failed"` en de Graph-foutcode in `fout`.
+
 ### Foutcodes telefoonbudget
 
 | HTTP | `error_code` | Betekenis |
@@ -333,6 +356,7 @@ Een nieuwe aankoop geeft `201`. Herhaal je hetzelfde verzoek met dezelfde `clien
 | `404` | `no_budget` | Persoon is bekend, maar er is nog geen indiensttreding geregistreerd. ICT moet die eerst in de UI invullen |
 | `405` | `method_not_allowed` | `budget_add_purchase` via GET |
 | `409` | `client_ref_conflict` | De `client_ref` is al gebruikt voor een andere persoon |
+| `502` | `graph_failed` | `budget_hire_stats`: Graph gaf een fout (bijv. ontbrekend recht) |
 | `503` | `users_unavailable` | Gebruikerslijst (Graph) tijdelijk onbereikbaar, en de persoon heeft nog geen budget |
 
 
@@ -346,5 +370,6 @@ Een nieuwe aankoop geeft `201`. Herhaal je hetzelfde verzoek met dezelfde `clien
 | `403` | `forbidden` |
 | `404` | `device_not_found`, `note_not_found`, `person_not_found`, `no_budget` |
 | `409` | `client_ref_conflict` |
+| `502` | `graph_failed` |
 | `503` | `users_unavailable` |
 | `500` | `generic` |

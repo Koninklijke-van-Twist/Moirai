@@ -52,6 +52,9 @@ $budgetModal = static function (string $id, string $titleKey, string $bodyHtml, 
     .modal-backdrop.budget-layer.budget-layer-2 { z-index: 1150; }
     .modal-backdrop.budget-layer.budget-layer-3 { z-index: 1250; }
     #budget-person-modal .modal, #budget-import-modal .modal { max-width: 980px; }
+    .budget-hire-diagnose { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--kvt-line, #e2e8f0); }
+    .budget-hire-hint:empty { display: none; }
+    #budget-hire-diagnose-result p { margin: 6px 0; }
     #budget-match-suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
     #budget-match-suggestions .chip.is-active { outline: 2px solid currentColor; }
     .budget-start-form { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
@@ -124,7 +127,13 @@ $budgetModal('budget-settings-modal', 'budget.settings', '
             <button type="submit" class="btn btn-primary">' . moirai_h(LOC('moirai.btn.save')) . '</button>
             <button type="button" class="btn btn-secondary" data-budget-close="budget-settings-modal">' . moirai_h(LOC('moirai.btn.cancel')) . '</button>
         </div>
-    </form>');
+    </form>
+    <section class="budget-hire-diagnose">
+        <h3>' . moirai_h(LOC('budget.hire.diagnose_title')) . '</h3>
+        <p class="budget-muted">' . moirai_h(LOC('budget.hire.diagnose_hint')) . '</p>
+        <button type="button" class="btn btn-secondary" id="budget-hire-diagnose-btn">' . moirai_h(LOC('budget.hire.diagnose')) . '</button>
+        <div id="budget-hire-diagnose-result" aria-live="polite"></div>
+    </section>');
 $budgetModal('budget-import-modal', 'budget.import', '
     <form class="form-grid" id="budget-import-form">
         <label>' . moirai_h(LOC('budget.import.file')) . '<input type="file" name="file" accept=".xls,.xlsx" required></label>
@@ -135,6 +144,7 @@ $budgetModal('budget-start-modal', 'budget.import.ask_start', '
     <form class="form-grid" id="budget-start-form">
         <p id="budget-start-text"></p>
         <label>' . moirai_h(LOC('budget.col.start')) . '<input type="date" name="indiensttreding" required></label>
+        <p class="budget-muted budget-hire-hint" id="budget-start-hint"></p>
         <div class="modal-actions">
             <button type="submit" class="btn btn-primary">' . moirai_h(LOC('budget.import.next')) . '</button>
             <button type="button" class="btn btn-secondary" data-budget-close="budget-start-modal">' . moirai_h(LOC('budget.import.cancel')) . '</button>
@@ -146,6 +156,7 @@ $budgetModal('budget-add-person-modal', 'budget.add_person', '
         <label>' . moirai_h(LOC('budget.field.email')) . '<input type="email" name="email" required maxlength="200"></label>
         <label>' . moirai_h(LOC('budget.field.name')) . '<input type="text" name="naam" maxlength="200"></label>
         <label>' . moirai_h(LOC('budget.col.start')) . '<input type="date" name="indiensttreding" required></label>
+        <p class="budget-muted budget-hire-hint" id="budget-add-person-hint"></p>
         <div class="modal-actions">
             <button type="submit" class="btn btn-primary">' . moirai_h(LOC('moirai.btn.save')) . '</button>
             <button type="button" class="btn btn-secondary" data-budget-close="budget-add-person-modal">' . moirai_h(LOC('moirai.btn.cancel')) . '</button>

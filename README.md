@@ -20,7 +20,13 @@ Tabblad **Telefoonbudget** (`web/telefoonbudget_ui.php`, `web/js/telefoonbudget.
 
 - Tabellen `budget_settings`, `budget_people` (e-mail = sleutel, indiensttreding) en `budget_purchases` (AUTOINCREMENT-id, volledig aankoopbedrag, datum, status, telefoon, notitie, gekoppelde telefoon-IMEI, import-hash, client_ref). De eigen bijdrage en budget voor/na worden **niet opgeslagen** maar altijd uit de tijdlijn berekend. Idempotente migratie `moirai_migrate_budget_tables()` bij de eerste DB-connectie (verwijdert ook de oude kolommen `eigen_bijdrage_cents`/`budget_voor_cents`/`budget_na_cents` als die bestaan).
 - Rechten: elke actie vereist `moirai_is_admin()`; schrijfacties vereisen POST + `X-CSRF-Token`.
-- **Personen:** de lijst toont de Moirai-gebruikerslijst plus iedereen in `budget_people` (ook collega's buiten de gebruikerslijst, bijv. @hunter.be of zonder functie). Met *Persoon toevoegen* maak je zo'n persoon handmatig aan op e-mailadres + indiensttreding.
+- **Personen (handmatige lijst, sinds 9 okt 2026):** de lijst is de tabel `budget_list` en wordt **alleen handmatig** bijgehouden. Graph/Entra vult de lijst niet meer (tot en met #13 toonde de lijst bij elke paginaload alle actieve Graph-gebruikers plus `budget_people`; er was geen nightly/hourly-import).
+  - Eenmalige seed bij de migratie (vlag `budget_meta.manual_list_seeded_at`, aantal in `manual_list_seed_count`): iedereen met een indiensttreding (`budget_people`) of minstens één aankoop. Graph-gebruikers zonder enige budgetdata komen er niet in. De seed draait nooit opnieuw.
+  - *Persoon toevoegen*: e-mail + naam verplicht, indiensttreding optioneel. Zoekveld *Zoeken in Microsoft 365 (hulp)* (actie `directory_search`) vult alleen e-mail/naam in; opslaan blijft handwerk. Ook collega's buiten de gebruikerslijst (bijv. @hunter.be).
+  - *Verwijderen uit lijst* (persoonsmodal, actie `remove_person`, POST + CSRF): alleen zichtbaar én server-side toegestaan bij nul aankopen (ook geen onbevestigde). Verwijdert ook de indiensttreding; de persoon komt niet vanzelf terug.
+  - Import: een naam/e-mail op de lijst kan "zeker" matchen; Graph-gebruikers en onbekende e-mailadressen zijn hooguit een kandidaat en worden altijd gevraagd. Pas na die keuze + indiensttreding komt iemand op de lijst.
+  - `employeeHireDate` uit Graph blijft alleen een voorstel voor de indiensttreding.
+  - api.php `budget_get`/`budget_add_purchase` werken alleen voor personen op de lijst; anders `person_not_found`.
 
 **Rekenregels** (instelbaar via de knop *Instellingen* of constanten in `moirai_budget.php`):
 
@@ -31,7 +37,7 @@ Tabblad **Telefoonbudget** (`web/telefoonbudget_ui.php`, `web/js/telefoonbudget.
 | Hele maand | telt zodra de dag-van-de-maand van de aankoop is bereikt (31 jan → 28/29 feb) | `moirai_budget_months_between()` |
 | Opbouw vóór de eerste aankoop | nee (budget blijft € 600) | `MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE` |
 | Maximum budget | geen (0) | instelling `max_cents` |
-| Onbevestigde aankopen tellen mee | ja (gemarkeerd in de lijst) | `MOIRAI_BUDGET_COUNT_UNCONFIRMED` |
+| Onbevestigde aankopen tellen mee | **nee** (sinds 9 okt 2026): geen effect op budget, opbouw of telefoonwaarde. Wel zichtbaar en gemarkeerd, met de eigen bijdrage "bij bevestigen" | `MOIRAI_BUDGET_COUNT_UNCONFIRMED` |
 | Huidige waarde telefoon (alleen informatief) | prijs laatste aankoop − € 25 per hele maand, min. 0 | instelling `depreciation_cents` |
 
 Een aankoop trekt het volledige bedrag af; het budget komt niet onder 0 en de eigen bijdrage is `max(0, prijs − budget op de aankoopdatum)` (berekend, niet opgeslagen). Elke wijziging (toevoegen, aanpassen, (on)bevestigen, verwijderen, indiensttreding of instellingen wijzigen) herberekent de hele tijdlijn.

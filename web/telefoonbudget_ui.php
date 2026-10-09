@@ -61,6 +61,7 @@ $budgetModal = static function (string $id, string $titleKey, string $bodyHtml, 
     .budget-link-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--kvt-line); }
     .budget-link-block select { width: 100%; }
     .budget-table-wrap { overflow-x: auto; }
+    .budget-remove-row { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--kvt-line); display: flex; justify-content: flex-end; }
 </style>
 
 <section id="budget-panel" hidden data-csrf="<?= moirai_h((string) ($budgetCsrf ?? moirai_budget_csrf_token())) ?>" data-i18n="<?= moirai_h(localizationJsTranslations($budgetKeys)) ?>" data-today="<?= moirai_h(moirai_today()->format('Y-m-d')) ?>">
@@ -153,9 +154,11 @@ $budgetModal('budget-start-modal', 'budget.import.ask_start', '
 $budgetModal('budget-add-person-modal', 'budget.add_person', '
     <form class="form-grid" id="budget-add-person-form" autocomplete="off">
         <p class="budget-muted">' . moirai_h(LOC('budget.add_person.hint')) . '</p>
+        <label>' . moirai_h(LOC('budget.add_person.search')) . '<input type="search" name="zoek" id="budget-add-person-search" list="budget-add-person-suggestions" placeholder="' . moirai_h(LOC('budget.add_person.search_placeholder')) . '" maxlength="200"></label>
+        <datalist id="budget-add-person-suggestions"></datalist>
         <label>' . moirai_h(LOC('budget.field.email')) . '<input type="email" name="email" required maxlength="200"></label>
-        <label>' . moirai_h(LOC('budget.field.name')) . '<input type="text" name="naam" maxlength="200"></label>
-        <label>' . moirai_h(LOC('budget.col.start')) . '<input type="date" name="indiensttreding" required></label>
+        <label>' . moirai_h(LOC('budget.field.name')) . '<input type="text" name="naam" required maxlength="200"></label>
+        <label>' . moirai_h(LOC('budget.add_person.start_optional')) . '<input type="date" name="indiensttreding"></label>
         <p class="budget-muted budget-hire-hint" id="budget-add-person-hint"></p>
         <div class="modal-actions">
             <button type="submit" class="btn btn-primary">' . moirai_h(LOC('moirai.btn.save')) . '</button>

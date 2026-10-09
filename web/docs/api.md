@@ -233,7 +233,7 @@ Gebruikt dezelfde API-keys en dezelfde authenticatie als de rest van `api.php`. 
 
 **Bedragen:** `prijs` / `bedrag` is altijd het **volledige aankoopbedrag**. De eigen bijdrage wordt **niet opgeslagen** maar altijd berekend: `max(0, prijs − budget op de aankoopdatum)`. Ook `budget_voor_*`, `budget_na_*` en `totale_eigen_bijdrage_*` zijn berekende waarden; ze veranderen mee als ICT een eerdere aankoop of de instellingen aanpast.
 
-**Personen:** naast de Moirai-gebruikerslijst zoekt de API ook in de budgettabel. Personen die alleen daar staan (bijv. collega's met een @hunter.be-adres of zonder functie, aangemaakt via de Excel-import of "Persoon toevoegen" in de UI) werken gewoon met `budget_get` en `budget_add_purchase`.
+**Personen:** de API werkt alleen voor personen op de handmatig bijgehouden telefoonbudgetlijst (ICT zet iemand erop via "Persoon toevoegen" of een bevestigde Excel-import; dat kan ook iemand met een @hunter.be-adres zijn). Iedereen anders, ook iemand die wel in Microsoft 365 staat, geeft `404 person_not_found`. De API voegt nooit zelf personen toe.
 
 Via de API kun je alleen **opvragen** en **een aankoop toevoegen**. Zo'n aankoop krijgt altijd de status **Onbevestigd**. Bevestigen, aanpassen en verwijderen kan alleen een ICT-admin in de UI (tab Telefoonbudget).
 
@@ -352,12 +352,13 @@ curl -s -H "X-API-Key: $MOIRAI_API_KEY" "https://sleutels.kvt.nl/moirai/api.php?
 | `400` | `invalid_email` | E-mail ontbreekt of is ongeldig |
 | `400` | `invalid_amount` / `invalid_date` | Prijs of datum ongeldig |
 | `401` | `api_key_missing` / `unauthorized` / `api_key_query` | Authenticatie (zie boven) |
-| `404` | `person_not_found` | E-mail onbekend in de gebruikerslijst én in de budgettabel |
-| `404` | `no_budget` | Persoon is bekend, maar er is nog geen indiensttreding geregistreerd. ICT moet die eerst in de UI invullen |
+| `404` | `person_not_found` | E-mail staat niet op de (handmatig bijgehouden) telefoonbudgetlijst. Ook als de persoon wel in Microsoft 365 staat |
+| `404` | `no_budget` | Persoon staat op de lijst, maar er is nog geen indiensttreding geregistreerd. ICT moet die eerst in de UI invullen |
 | `405` | `method_not_allowed` | `budget_add_purchase` via GET |
 | `409` | `client_ref_conflict` | De `client_ref` is al gebruikt voor een andere persoon |
 | `502` | `graph_failed` | `budget_hire_stats`: Graph gaf een fout (bijv. ontbrekend recht) |
-| `503` | `users_unavailable` | Gebruikerslijst (Graph) tijdelijk onbereikbaar, en de persoon heeft nog geen budget |
+
+Sinds 9 okt 2026 raadplegen `budget_get`/`budget_add_purchase` Graph niet meer; `users_unavailable` (503) komt bij deze acties dus niet meer voor (wel nog bij `users` e.d.).
 
 
 ## Errors

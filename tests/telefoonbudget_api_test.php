@@ -90,21 +90,27 @@ $r = api_call('budget_get', []);
 expect($r['status'] === 400 && $r['body']['error_code'] === 'invalid_email', 'missing email -> invalid_email');
 $r = api_call('budget_get', ['email' => 'onbekend@kvt.nl']);
 expect($r['status'] === 404 && $r['body']['error_code'] === 'person_not_found', 'person_not_found 404');
+// Wel in Graph/de gebruikerslijst, maar niet op de handmatige telefoonbudgetlijst.
 $r = api_call('budget_get', ['email' => 'nieuw@kvt.nl']);
-expect($r['status'] === 404 && $r['body']['error_code'] === 'no_budget', 'no_budget for known person without start date');
+expect($r['status'] === 404 && $r['body']['error_code'] === 'person_not_found', 'Graph user not on the list -> person_not_found');
+$r = api_call('budget_add_purchase', ['email' => 'nieuw@kvt.nl', 'prijs' => '300'], 'POST');
+expect($r['status'] === 404 && $r['body']['error_code'] === 'person_not_found', 'add purchase for Graph user not on the list -> person_not_found');
+expect(moirai_budget_purchase_rows('nieuw@kvt.nl') === [] && moirai_budget_listed_row('nieuw@kvt.nl') === null, 'API never adds people to the list');
+moirai_budget_add_person('nieuw@kvt.nl', 'Nog Geen Budget');
+$r = api_call('budget_get', ['email' => 'nieuw@kvt.nl']);
+expect($r['status'] === 404 && $r['body']['error_code'] === 'no_budget', 'no_budget for listed person without start date');
 $r = api_call('budget_add_purchase', ['email' => 'nieuw@kvt.nl', 'prijs' => '300'], 'POST');
 expect($r['status'] === 404 && $r['body']['error_code'] === 'no_budget', 'add purchase without start date -> no_budget');
 $r = api_call('budget_add_purchase', ['email' => 'jan.jansen@kvt.nl', 'prijs' => '300']);
 expect($r['status'] === 405 && $r['body']['error_code'] === 'method_not_allowed', 'add purchase via GET -> 405');
-$broken = $GLOBALS['moirai_api_directory_users'];
-unset($GLOBALS['moirai_api_directory_users']);
 $r = moirai_budget_api_get('iemand@kvt.nl', static function (): array { throw new RuntimeException('graph down'); });
-expect($r['status'] === 503 && $r['body']['error_code'] === 'users_unavailable', 'directory down -> users_unavailable 503');
-$GLOBALS['moirai_api_directory_users'] = $broken;
+expect($r['status'] === 404 && $r['body']['error_code'] === 'person_not_found', 'Graph is not consulted anymore (no 503 for budget actions)');
 
 // Opvragen.
-moirai_budget_set_start('jan.jansen@kvt.nl', '2024-03-01', 'Jan Jansen');
-moirai_budget_set_start('lies.peeters@hunter.be', '2025-01-15', 'Lies Peeters');
+moirai_budget_add_person('jan.jansen@kvt.nl', 'Jan Jansen', '2024-03-01');
+moirai_budget_add_person('lies.peeters@hunter.be', 'Lies Peeters', '2025-01-15');
+$r = moirai_budget_api_get('jan.jansen@kvt.nl', static function (): array { throw new RuntimeException('graph down'); });
+expect($r['status'] === 200, 'listed person works even when Graph is down');
 $r = api_call('budget_get', ['email' => 'JAN.JANSEN@KVT.NL']);
 $b = $r['body'];
 expect($r['status'] === 200 && $b['email'] === 'jan.jansen@kvt.nl', 'lookup is case-insensitive');
@@ -165,7 +171,7 @@ foreach (['budget_confirm', 'budget_update_purchase', 'budget_delete_purchase', 
 
 // Persoon die alleen in de budgettabel staat (niet in de Moirai-gebruikerslijst),
 // bijv. aangemaakt via de import of "Persoon toevoegen".
-moirai_budget_set_start('piet.extern@hunter.be', '2025-06-01', 'Piet Extern');
+moirai_budget_add_person('piet.extern@hunter.be', 'Piet Extern', '2025-06-01');
 $r = api_call('budget_get', ['email' => 'Piet.Extern@HUNTER.be']);
 expect($r['status'] === 200 && $r['body']['naam'] === 'Piet Extern' && $r['body']['budget_cents'] === 60000, 'budget_get finds budget-table-only person');
 $r = api_call('budget_add_purchase', ['email' => 'piet.extern@hunter.be', 'prijs' => '650,00', 'datum' => '2025-07-01', 'client_ref' => 'metis-piet-1'], 'POST');

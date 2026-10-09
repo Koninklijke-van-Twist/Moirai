@@ -131,6 +131,7 @@ try {
         ['lib/kvt-chat/api.php?action=delete', ['message_id' => 1]],
         ['budget_api.php?action=add_person', ['email' => 'rook@hunter.be', 'indiensttreding' => '2025-01-01']],
         ['budget_api.php?action=save_settings', ['start_cents' => '600', 'monthly_cents' => '25']],
+        ['budget_api.php?action=remove_person', ['email' => 'rook@hunter.be']],
     ];
     foreach ($mutations as [$path, $body]) {
         expect($isCsrf(http('POST', $path, $body)), "no token -> 403 csrf: {$path}");
@@ -162,6 +163,12 @@ try {
     expect($r['status'] === 200 && ($r['json']['person']['email'] ?? '') === 'rook@hunter.be', 'budget add_person with token works');
     $r = http('POST', 'budget_api.php?action=add_purchase', ['email' => 'rook@hunter.be', 'prijs' => '650', 'datum' => '2025-02-01'], $ok);
     expect($r['status'] === 200 && ($r['json']['purchase']['eigen_bijdrage_cents'] ?? -1) === 5000, 'budget add_purchase with token works (own contribution computed)');
+    $r = http('POST', 'budget_api.php?action=remove_person', ['email' => 'rook@hunter.be'], $ok);
+    expect($r['status'] === 400 && ($r['json']['ok'] ?? true) === false, 'budget remove_person with token refused while purchases exist');
+    $r = http('POST', 'budget_api.php?action=add_person', ['email' => 'rook.leeg@hunter.be', 'naam' => 'Rook Leeg'], $ok);
+    expect($r['status'] === 200 && ($r['json']['person']['verwijderbaar'] ?? false) === true, 'budget add_person without start date works');
+    $r = http('POST', 'budget_api.php?action=remove_person', ['email' => 'rook.leeg@hunter.be'], $ok);
+    expect($r['status'] === 200 && ($r['json']['ok'] ?? false) === true, 'budget remove_person with token works');
     $r = http('POST', 'devices_api.php?action=delete', ['type' => 'phone', 'id' => $imei], $ok);
     expect($r['status'] === 200 && ($r['json']['ok'] ?? false) === true, 'delete device with token works');
 

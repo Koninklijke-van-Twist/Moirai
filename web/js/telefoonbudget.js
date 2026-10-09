@@ -68,8 +68,7 @@
             var body = document.getElementById('budget-people');
             body.innerHTML = data.items.map(function (p) {
                 return '<tr class="budget-person-row" data-email="' + esc(p.email) + '" data-naam="' + esc(p.naam) + '">' +
-                    '<td><strong>' + esc(p.naam || p.email) + '</strong><br><span class="budget-muted">' + esc(p.email) +
-                    (p.in_directory ? '' : ' · ' + esc(t('budget.not_in_directory'))) + '</span></td>' +
+                    '<td><strong>' + esc(p.naam || p.email) + '</strong><br><span class="budget-muted">' + esc(p.email) + '</span></td>' +
                     '<td>' + (p.indiensttreding ? esc(date(p.indiensttreding)) : '<span class="budget-muted">' + esc(t('budget.no_start')) + '</span>') + '</td>' +
                     '<td class="num">' + esc(money(p.budget_cents)) + (p.onbevestigd ? ' <span class="budget-status budget-status-onbevestigd">' + p.onbevestigd + '× ' + esc(t('budget.status.onbevestigd')) + '</span>' : '') + '</td>' +
                     '<td>' + esc(date(p.laatste_aankoop)) + '</td></tr>';
@@ -139,6 +138,10 @@
             });
             html += '</tbody></table></div>';
         }
+        // Alleen zonder aankopen (ook geen onbevestigde); de server controleert dit opnieuw.
+        if (p.verwijderbaar && !p.purchases.length) {
+            html += '<div class="budget-remove-row"><button type="button" class="btn btn-danger" id="budget-remove-person">' + esc(t('budget.btn.remove_person')) + '</button></div>';
+        }
         document.getElementById('budget-person-body').innerHTML = html;
     }
     function refreshAfter(data) {
@@ -155,6 +158,17 @@
     });
     document.getElementById('budget-person-body').addEventListener('click', function (event) {
         if (event.target.id === 'budget-add') { openPurchase(null); return; }
+        if (event.target.id === 'budget-remove-person') {
+            var who = state.person;
+            askConfirm(t('budget.confirm.remove_person', who.naam || who.email), function () {
+                return post('remove_person', { email: who.email }).then(function () {
+                    close('budget-person-modal');
+                    state.person = null;
+                    loadPeople().then(function () { msg('budget-page-message', t('budget.person_removed', who.naam || who.email)); });
+                });
+            }, true);
+            return;
+        }
         var btn = event.target.closest('button[data-act]');
         if (!btn) { return; }
         var id = parseInt(btn.getAttribute('data-id'), 10);
@@ -280,6 +294,32 @@
         open('budget-add-person-modal');
         addPersonForm.elements.email.focus();
     });
+    // Zoekhulp: Microsoft 365-gebruikers die nog niet op de lijst staan. Kiezen vult alleen
+    // e-mail en naam in; opslaan blijft een handmatige actie.
+    var addSearch = document.getElementById('budget-add-person-search');
+    var addSuggestions = {};
+    var addSearchTimer = null;
+    addSearch.addEventListener('input', function () {
+        var value = addSearch.value.trim();
+        var hit = addSuggestions[value.toLowerCase()];
+        if (hit) {
+            addPersonForm.elements.email.value = hit.email;
+            addPersonForm.elements.naam.value = hit.naam;
+            addPersonForm.elements.email.dispatchEvent(new Event('change'));
+            return;
+        }
+        clearTimeout(addSearchTimer);
+        if (value.length < 2) { return; }
+        addSearchTimer = setTimeout(function () {
+            api('directory_search', { q: value }).then(function (data) {
+                addSuggestions = {};
+                document.getElementById('budget-add-person-suggestions').innerHTML = data.items.map(function (u) {
+                    addSuggestions[u.email.toLowerCase()] = u;
+                    return '<option value="' + esc(u.email) + '">' + esc(u.naam) + '</option>';
+                }).join('');
+            }).catch(function () { /* zoekhulp is optioneel */ });
+        }, 250);
+    });
     addPersonForm.elements.email.addEventListener('change', function () {
         var input = addPersonForm.elements.email;
         if (input.value.trim() && input.checkValidity()) {
@@ -317,16 +357,11 @@
         var seen = {};
         p.kandidaten.forEach(function (c) {
             seen[c.email] = true;
-            html += '<option value="' + esc(c.email) + '"' + (p.email === c.email ? ' selected' : '') + '>' + esc((c.naam || c.email) + ' <' + c.email + '>') + '</option>';
+            html += '<option value="' + esc(c.email) + '"' + (p.email === c.email ? ' selected' : '') + '>' + esc((c.naam || c.email) + ' <' + c.email + '>' + (c.op_lijst === false ? ' (' + t('budget.import.not_listed') + ')' : '')) + '</option>';
         });
-        if (p.zeker && p.email && !seen[p.email]) {
-            // Zeker op e-mailadres, maar (nog) niet in Moirai: nieuwe persoon.
-            seen[p.email] = true;
-            html += '<option value="' + esc(p.email) + '" selected>' + esc(p.email + ' (' + t('budget.import.new_person') + ')') + '</option>';
-        }
         html += '<option disabled>──────────</option>';
         mensen.forEach(function (m) {
-            if (!seen[m.email]) { html += '<option value="' + esc(m.email) + '">' + esc((m.naam || m.email) + ' <' + m.email + '>') + '</option>'; }
+            if (!seen[m.email]) { html += '<option value="' + esc(m.email) + '">' + esc((m.naam || m.email) + ' <' + m.email + '>' + (m.op_lijst === false ? ' (' + t('budget.import.not_listed') + ')' : '')) + '</option>'; }
         });
         return html;
     }
@@ -380,7 +415,7 @@
         document.getElementById('budget-match-text').textContent = t('budget.import.match_body', p.bron, p.nieuw, date(p.eerste_datum));
         var sug = document.getElementById('budget-match-suggestions');
         sug.innerHTML = p.kandidaten.length ? '<span class="budget-muted">' + esc(t('budget.import.suggestions')) + ':</span> ' + p.kandidaten.map(function (c) {
-            return '<button type="button" class="chip" data-match-email="' + esc(c.email) + '">' + esc((c.naam || c.email) + ' <' + c.email + '>') + '</button>';
+            return '<button type="button" class="chip" data-match-email="' + esc(c.email) + '">' + esc((c.naam || c.email) + ' <' + c.email + '>' + (c.op_lijst === false ? ' (' + t('budget.import.not_listed') + ')' : '')) + '</button>';
         }).join('') : '';
         var list = document.getElementById('budget-match-people');
         if (!list.childElementCount) {
@@ -428,7 +463,7 @@
             else if (byEmail[email].bron.indexOf(p.bron) === -1) { byEmail[email].bron += '", "' + p.bron; }
             byEmail[email].aantal += p.nieuw;
             if (p.eerste_datum < byEmail[email].eerste) { byEmail[email].eerste = p.eerste_datum; }
-            if (!known[email] && !state.importNames[email]) { state.importNames[email] = p.bron; }
+            if (!state.importNames[email]) { state.importNames[email] = (known[email] && known[email].naam) || p.bron; }
         });
         state.importStarts = {};
         state.importQueue = Object.keys(byEmail).map(function (k) { return byEmail[k]; });

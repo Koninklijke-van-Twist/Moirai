@@ -130,6 +130,14 @@ foreach (['budget_settings', 'budget_people', 'budget_purchases'] as $table) {
 moirai_init_schema($pdo);
 moirai_init_schema($pdo);
 expect(true, 'budget migration is idempotent');
+expect((int) $pdo->query('SELECT COUNT(*) FROM budget_list')->fetchColumn() === 0, 'manual list starts empty on a fresh DB (no Graph import)');
+expect(moirai_budget_list_people()['total'] === 0, 'Graph users are NOT shown automatically');
+expect(invalid_message(static fn() => moirai_budget_set_start('anna@kvt.nl', '2024-01-01')) === LOC('budget.error.not_listed'), 'set_start refused for someone not on the list');
+// De vier verzonnen collega's handmatig op de lijst zetten (zoals Tim via Persoon toevoegen).
+foreach ($GLOBALS['moirai_budget_directory_users'] as $u) {
+    moirai_budget_list_insert($u['Email'], $u['Naam']);
+}
+expect(moirai_budget_list_people()['total'] === 4, 'manually listed people are shown');
 $seq = $pdo->query("SELECT sql FROM sqlite_master WHERE name = 'budget_purchases'")->fetchColumn();
 expect(str_contains((string) $seq, 'AUTOINCREMENT'), 'purchases use AUTOINCREMENT id');
 
@@ -357,7 +365,11 @@ expect($m['zeker'] && $m['email'] === 'tom.vries@kvt.nl', 'exact name wins over 
 $m = moirai_budget_match_person('Jan', $names);
 expect(!$m['zeker'], 'first name only is never certain');
 $m = moirai_budget_match_person('Lies.Peeters@Hunter.be', $names);
-expect($m['zeker'] && $m['email'] === 'lies.peeters@hunter.be', 'email in Excel is certain, also outside the user list');
+expect(!$m['zeker'] && $m['email'] === null && $m['kandidaten'] === ['lies.peeters@hunter.be'], 'email in Excel not on the list is asked (never auto-added)');
+$m = moirai_budget_match_person('Jan.Berg@KVT.nl', $names);
+expect($m['zeker'] && $m['email'] === 'jan.berg@kvt.nl', 'email in Excel on the list is certain');
+$m = moirai_budget_match_person('Willem Graaf', $names, ['willem@kvt.nl' => ['email' => 'willem@kvt.nl', 'naam' => 'Willem Graaf']]);
+expect(!$m['zeker'] && $m['email'] === null && $m['kandidaten'] === ['willem@kvt.nl'], 'Graph-only user is a candidate, never certain');
 
 // --- Personen buiten de gebruikerslijst ---------------------------------------
 
@@ -377,19 +389,64 @@ $lies = moirai_budget_person('lies.peeters@hunter.be');
 expect($lies['naam'] === 'Lies Peeters' && $lies['indiensttreding'] === '2024-02-01', 'outside person created with Excel name and start date');
 expect($lies['purchases'][0]['prijs_cents'] === 65000 && $lies['purchases'][0]['eigen_bijdrage_cents'] === 5000 && $lies['purchases'][0]['budget_na_cents'] === 0, 'own contribution computed: max(0, price - budget)');
 $listed = moirai_budget_list_people('peeters');
-expect($listed['total'] === 1 && $listed['items'][0]['in_directory'] === false && $listed['items'][0]['indiensttreding'] === '2024-02-01', 'outside person appears in the list');
+expect($listed['total'] === 1 && !isset($listed['items'][0]['in_directory']) && $listed['items'][0]['indiensttreding'] === '2024-02-01', 'outside person appears in the list');
 $m = moirai_budget_match_person('Peeters, Lies', moirai_budget_all_people());
 expect($m['zeker'] && $m['email'] === 'lies.peeters@hunter.be', 're-import matches the created outside person by name');
 
 // Handmatig toevoegen in de UI.
-[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'nieuw.extern@hunter.be', 'naam' => 'Nieuw Extern'], $csrf);
-expect($status === 400 && $body['error'] === LOC('budget.error.start_required'), 'add_person requires start date');
+[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'nieuw.extern@hunter.be', 'naam' => '', 'indiensttreding' => '2025-01-01'], $csrf);
+expect($status === 400 && $body['error'] === LOC('budget.error.name_required'), 'add_person requires a name');
 [$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'geen email', 'indiensttreding' => '2025-01-01'], $csrf);
 expect($status === 400 && $body['error'] === LOC('budget.error.email_invalid'), 'add_person rejects invalid email');
 [$status] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'nieuw.extern@hunter.be', 'naam' => 'Nieuw Extern', 'indiensttreding' => '2025-01-01'], 'fout');
 expect($status === 403, 'add_person without valid CSRF token refused');
 [$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'Nieuw.Extern@hunter.be', 'naam' => 'Nieuw Extern', 'indiensttreding' => '2025-01-01'], $csrf);
 expect($status === 200 && $body['person']['email'] === 'nieuw.extern@hunter.be' && $body['person']['budget_cents'] === 60000, 'add_person creates outside person');
+[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'nieuw.extern@hunter.be', 'naam' => 'Nieuw Extern'], $csrf);
+expect($status === 400 && $body['error'] === LOC('budget.error.already_listed', 'nieuw.extern@hunter.be'), 'add_person refuses a duplicate');
+[$status, $body] = moirai_budget_api_dispatch('add_person', 'POST', ['email' => 'Zonder.Start@hunter.be', 'naam' => 'Zonder Start'], $csrf);
+expect($status === 200 && $body['person']['indiensttreding'] === null && $body['person']['verwijderbaar'] === true, 'add_person without start date (optional)');
+
+// --- Handmatige lijst: verwijderen, zoekhulp, geen automatische toevoeging ----
+
+$GLOBALS['moirai_budget_directory_users'][] = ['Id' => 'u5', 'Naam' => 'Eva Alleengraph', 'Email' => 'eva@kvt.nl'];
+expect(moirai_budget_list_people('eva')['total'] === 0, 'new Graph user does not appear in the list');
+[$status, $body] = moirai_budget_api_dispatch('directory_search', 'GET', ['q' => 'eva'], '');
+expect($status === 200 && array_column($body['items'], 'email') === ['eva@kvt.nl'], 'directory_search suggests Graph users');
+[$status, $body] = moirai_budget_api_dispatch('directory_search', 'GET', ['q' => 'anna'], '');
+expect($status === 200 && $body['items'] === [], 'directory_search hides people already on the list');
+expect((int) $pdo->query("SELECT COUNT(*) FROM budget_list WHERE email = 'eva@kvt.nl'")->fetchColumn() === 0, 'directory_search saves nothing');
+[$status, $body] = moirai_budget_api_dispatch('person', 'GET', ['email' => 'eva@kvt.nl'], '');
+expect($status === 400 && $body['error'] === LOC('budget.error.not_listed'), 'person detail refused for unlisted Graph user');
+$evaPreview = moirai_budget_import_preview(moirai_budget_import_parse([['datum', 'persoon', 'bedrag'], ['2025-01-01', 'Eva Alleengraph', '100'], ['2025-01-02', 'eva@kvt.nl', '100']]));
+foreach ($evaPreview['personen'] as $ep) {
+    expect(!$ep['zeker'] && $ep['email'] === null && $ep['kandidaten'][0]['email'] === 'eva@kvt.nl' && $ep['kandidaten'][0]['op_lijst'] === false, 'import: Graph-only person is asked, not auto-matched (' . $ep['bron'] . ')');
+}
+
+$annaDetail = moirai_budget_person('anna@kvt.nl');
+expect($annaDetail['verwijderbaar'] === false && $annaDetail['aantal_aankopen'] > 0, 'person with purchases is not removable');
+[$status] = moirai_budget_api_dispatch('remove_person', 'POST', ['email' => 'zonder.start@hunter.be'], 'fout');
+expect($status === 403, 'remove_person without CSRF refused');
+[$status] = moirai_budget_api_dispatch('remove_person', 'GET', ['email' => 'zonder.start@hunter.be'], $csrf);
+expect($status === 403, 'remove_person via GET refused');
+[$status, $body] = moirai_budget_api_dispatch('remove_person', 'POST', ['email' => 'anna@kvt.nl'], $csrf);
+expect($status === 400 && $body['error'] === LOC('budget.error.remove_has_purchases') && moirai_budget_listed_row('anna@kvt.nl') !== null, 'server refuses removing someone with purchases');
+moirai_budget_list_insert('onbevestigd@kvt.nl', 'Alleen Onbevestigd');
+moirai_budget_set_start('onbevestigd@kvt.nl', '2024-01-01');
+$onlyUnconfirmed = moirai_budget_add_purchase('onbevestigd@kvt.nl', ['prijs' => '10', 'datum' => '2025-01-01']);
+expect(moirai_budget_person('onbevestigd@kvt.nl')['verwijderbaar'] === false, 'an unconfirmed purchase also blocks removal (UI flag)');
+[$status] = moirai_budget_api_dispatch('remove_person', 'POST', ['email' => 'onbevestigd@kvt.nl'], $csrf);
+expect($status === 400 && moirai_budget_listed_row('onbevestigd@kvt.nl') !== null, 'server refuses removal with only an unconfirmed purchase');
+moirai_budget_delete_purchase((int) $onlyUnconfirmed['id']);
+[$status, $body] = moirai_budget_api_dispatch('remove_person', 'POST', ['email' => 'Onbevestigd@kvt.nl'], $csrf);
+expect($status === 200 && moirai_budget_listed_row('onbevestigd@kvt.nl') === null && moirai_budget_person_row('onbevestigd@kvt.nl') === null, 'remove_person removes list entry and start date');
+[$status, $body] = moirai_budget_api_dispatch('remove_person', 'POST', ['email' => 'zonder.start@hunter.be'], $csrf);
+expect($status === 200 && moirai_budget_list_people('zonder')['total'] === 0, 'removed person disappears from the list');
+moirai_init_schema($pdo);
+moirai_migrate_budget_tables($pdo);
+expect(moirai_budget_listed_row('zonder.start@hunter.be') === null && moirai_budget_listed_row('onbevestigd@kvt.nl') === null, 'removed person does not come back after migration/seed');
+[$status, $body] = moirai_budget_api_dispatch('remove_person', 'POST', ['email' => 'zonder.start@hunter.be'], $csrf);
+expect($status === 400 && $body['error'] === LOC('budget.error.not_listed'), 'removing twice gives not_listed');
 
 // --- employeeHireDate uit Microsoft Graph: alleen voorstel + diagnose ---------
 
@@ -492,6 +549,23 @@ $GLOBALS['moirai_graph_fetch'] = static function (string $url): array { throw ne
 expect($status === 200 && $body['ok'] === false && $body['fout'] === 'graph_not_configured' && str_contains($body['error'], 'graph_not_configured'), 'hire_diagnose reports Graph failure');
 unset($GLOBALS['moirai_graph_fetch'], $GLOBALS['moirai_graph_roles']);
 @unlink(moirai_budget_hire_cache_file());
+
+// --- Migratie: eenmalige seed van de handmatige lijst -------------------------
+
+$seedDb = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$seedDb->exec("CREATE TABLE budget_people (email TEXT PRIMARY KEY, naam TEXT NOT NULL DEFAULT '', indiensttreding TEXT NOT NULL, bijgewerkt TEXT)");
+$seedDb->exec("CREATE TABLE budget_purchases (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, datum TEXT NOT NULL, prijs_cents INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'onbevestigd', telefoon TEXT NOT NULL DEFAULT '', notitie TEXT NOT NULL DEFAULT '', phone_imei TEXT, import_hash TEXT, aangemaakt TEXT, aangemaakt_door TEXT)");
+$seedDb->exec("INSERT INTO budget_people (email, naam, indiensttreding) VALUES ('start@kvt.nl', 'Met Start', '2024-01-01'), ('beide@kvt.nl', 'Beide', '2023-01-01')");
+$seedDb->exec("INSERT INTO budget_purchases (email, datum, prijs_cents) VALUES ('beide@kvt.nl', '2025-01-01', 100), ('wees@kvt.nl', '2025-02-01', 200), ('wees@kvt.nl', '2025-03-01', 300)");
+moirai_migrate_budget_tables($seedDb);
+$seeded = array_column($seedDb->query('SELECT email FROM budget_list ORDER BY email')->fetchAll(), 'email');
+expect($seeded === ['beide@kvt.nl', 'start@kvt.nl', 'wees@kvt.nl'], 'seed: everyone with a start date or purchases, no duplicates, no Graph-only users');
+expect($seedDb->query("SELECT naam FROM budget_list WHERE email = 'start@kvt.nl'")->fetchColumn() === 'Met Start', 'seed keeps the stored name');
+expect($seedDb->query("SELECT value FROM budget_meta WHERE name = 'manual_list_seed_count'")->fetchColumn() === '3', 'seed count recorded');
+$seedDb->exec("DELETE FROM budget_list WHERE email = 'start@kvt.nl'");
+$seedDb->exec("INSERT INTO budget_people (email, naam, indiensttreding) VALUES ('later@kvt.nl', 'Later', '2024-01-01')");
+moirai_migrate_budget_tables($seedDb);
+expect(array_column($seedDb->query('SELECT email FROM budget_list ORDER BY email')->fetchAll(), 'email') === ['beide@kvt.nl', 'wees@kvt.nl'], 'seed runs only once: removed person stays removed, nothing auto-added later');
 
 // --- Migratie: oude opgeslagen kolommen worden veilig verwijderd --------------
 

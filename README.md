@@ -37,7 +37,7 @@ Tabblad **Telefoonbudget** (`web/telefoonbudget_ui.php`, `web/js/telefoonbudget.
 | Hele maand | telt zodra de dag-van-de-maand van de aankoop is bereikt (31 jan → 28/29 feb) | `moirai_budget_months_between()` |
 | Opbouw vóór de eerste aankoop | nee (budget blijft € 600) | `MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE` |
 | Maximum budget | geen (0) | instelling `max_cents` |
-| Onbevestigde aankopen tellen mee | ja (gemarkeerd in de lijst) | `MOIRAI_BUDGET_COUNT_UNCONFIRMED` |
+| Onbevestigde aankopen tellen mee | **nee** (sinds 9 okt 2026): geen effect op budget, opbouw of telefoonwaarde. Wel zichtbaar en gemarkeerd, met de eigen bijdrage "bij bevestigen" | `MOIRAI_BUDGET_COUNT_UNCONFIRMED` |
 | Huidige waarde telefoon (alleen informatief) | prijs laatste aankoop − € 25 per hele maand, min. 0 | instelling `depreciation_cents` |
 
 Een aankoop trekt het volledige bedrag af; het budget komt niet onder 0 en de eigen bijdrage is `max(0, prijs − budget op de aankoopdatum)` (berekend, niet opgeslagen). Elke wijziging (toevoegen, aanpassen, (on)bevestigen, verwijderen, indiensttreding of instellingen wijzigen) herberekent de hele tijdlijn.

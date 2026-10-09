@@ -130,7 +130,9 @@ $a = $r['body'];
 expect($r['status'] === 201 && $a['idempotent_replay'] === false, 'add purchase -> 201');
 expect($a['aankoop']['status'] === 'onbevestigd' && $a['aankoop']['status_label'] === 'Onbevestigd', 'API purchase is always Onbevestigd (status param ignored)');
 expect($a['aankoop']['telefoon'] === 'Voorbeeldfoon 15' && $a['aankoop']['notitie'] === "Ticket #123\nZwart", 'telefoon + notitie stored');
-expect($a['aankoop']['budget_na_cents'] === 15000 && $a['eigen_bijdrage_cents'] === 0, 'budget after purchase returned');
+expect($a['aankoop']['budget_na_cents'] === 15000 && $a['eigen_bijdrage_cents'] === 0, 'what-if-confirmed figures returned');
+expect($a['aankoop']['telt_mee'] === false && $a['budget']['budget_cents'] === 60000 && $a['budget']['totaal_besteed_cents'] === 0 && $a['budget']['onbevestigd_bedrag_cents'] === 45000, 'unconfirmed API purchase has no effect on the budget');
+moirai_budget_set_status((int) $a['aankoop']['id'], MOIRAI_BUDGET_STATUS_CONFIRMED); // in de UI
 $r = api_call('budget_add_purchase', ['email' => 'jan.jansen@kvt.nl', 'price' => '350', 'date' => '2025-02-28', 'client_ref' => 'asclepius-4711'], 'POST');
 $c = $r['body'];
 expect($r['status'] === 201 && $c['aankoop']['budget_voor_cents'] === 17500, 'budget on 28 feb includes one month (31 jan anchor)');
@@ -153,7 +155,12 @@ expect($r['status'] === 400 && $r['body']['error_code'] === 'invalid_date', 'inv
 $r = api_call('budget_add_purchase', ['email' => 'lies.peeters@hunter.be', 'prijs' => '99.99'], 'POST');
 expect($r['status'] === 201 && $r['body']['aankoop']['datum'] === '2026-10-08', 'date defaults to today');
 
-// Opvragen na aankopen.
+// Opvragen na aankopen: c (28 feb) is nog onbevestigd en telt niet mee.
+$b = api_call('budget_get', ['email' => 'jan.jansen@kvt.nl'])['body'];
+expect($b['budget_cents'] === 15000 + 20 * 2500 && $b['laatste_aankoop'] === '2025-01-31' && $b['totaal_besteed_cents'] === 45000, 'budget_get ignores unconfirmed purchase (budget, accrual, last purchase)');
+expect($b['onbevestigd_bedrag_cents'] === 35000 && $b['aankopen'][1]['telt_mee'] === false && $b['aankopen'][1]['eigen_bijdrage_cents'] === 17500, 'unconfirmed purchase listed with own contribution if confirmed');
+expect($b['telefoon_waarde']['purchase_id'] === $a['aankoop']['id'], 'phone value only from confirmed purchases');
+moirai_budget_set_status((int) $c['aankoop']['id'], MOIRAI_BUDGET_STATUS_CONFIRMED); // in de UI
 $b = api_call('budget_get', ['email' => 'jan.jansen@kvt.nl'])['body'];
 expect(count($b['aankopen']) === 2 && $b['laatste_aankoop'] === '2025-02-28', 'purchases listed, last purchase date');
 expect($b['totaal_besteed_cents'] === 80000 && $b['totaal_besteed_eur'] === '800.00', 'total spent');

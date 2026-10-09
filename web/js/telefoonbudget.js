@@ -70,7 +70,7 @@
                 return '<tr class="budget-person-row" data-email="' + esc(p.email) + '" data-naam="' + esc(p.naam) + '">' +
                     '<td><strong>' + esc(p.naam || p.email) + '</strong><br><span class="budget-muted">' + esc(p.email) + '</span></td>' +
                     '<td>' + (p.indiensttreding ? esc(date(p.indiensttreding)) : '<span class="budget-muted">' + esc(t('budget.no_start')) + '</span>') + '</td>' +
-                    '<td class="num">' + esc(money(p.budget_cents)) + (p.onbevestigd ? ' <span class="budget-status budget-status-onbevestigd">' + p.onbevestigd + '× ' + esc(t('budget.status.onbevestigd')) + '</span>' : '') + '</td>' +
+                    '<td class="num">' + esc(money(p.budget_cents)) + (p.onbevestigd ? ' <span class="budget-status budget-status-onbevestigd" title="' + esc(t('budget.unconfirmed_hint')) + '">' + esc(t('budget.pending_not_counted', p.onbevestigd + '×')) + '</span>' : '') + '</td>' +
                     '<td>' + esc(date(p.laatste_aankoop)) + '</td></tr>';
             }).join('');
             document.getElementById('budget-page-info').textContent = t('budget.page', data.page, data.pages, data.total);
@@ -92,7 +92,8 @@
         var html = '';
         if (p.indiensttreding) {
             html += '<div class="budget-top"><div><div class="budget-muted">' + esc(t('budget.current')) + '</div>' +
-                '<div class="budget-amount">' + esc(money(p.budget_cents)) + '</div></div>';
+                '<div class="budget-amount">' + esc(money(p.budget_cents)) + '</div>' +
+                (p.onbevestigd ? '<div class="budget-muted">' + esc(t('budget.pending_not_counted', p.onbevestigd + '×')) + '</div>' : '') + '</div>';
             if (p.telefoon_waarde) {
                 html += '<div class="budget-value"><div class="budget-muted">' + esc(t('budget.phone_value')) + '</div><strong>' +
                     esc(money(p.telefoon_waarde.value_cents)) + '</strong><div class="budget-muted">' +
@@ -126,8 +127,10 @@
                     '<td>' + esc(date(row.datum)) + '</td>' +
                     '<td>' + esc(row.telefoon || '—') + (row.notitie ? '<div class="budget-note">' + esc(row.notitie) + '</div>' : '') + '</td>' +
                     '<td class="num">' + esc(money(row.prijs_cents)) + '</td>' +
-                    '<td class="num">' + esc(money(row.eigen_bijdrage_cents)) + '</td>' +
-                    '<td><span class="budget-status budget-status-' + esc(row.status) + '">' + esc(t('budget.status.' + row.status)) + '</span></td>' +
+                    // Onbevestigd: geen effect op het budget; toon de eigen bijdrage "bij bevestigen".
+                    '<td class="num">' + (unconfirmed ? '<span class="budget-muted">' + esc(t('budget.own_if_confirmed')) + ':</span><br>' : '') + esc(money(row.eigen_bijdrage_cents)) + '</td>' +
+                    '<td><span class="budget-status budget-status-' + esc(row.status) + '">' + esc(t('budget.status.' + row.status)) + '</span>' +
+                    (unconfirmed ? '<br><span class="budget-muted">' + esc(t('budget.not_counted')) + '</span>' : '') + '</td>' +
                     '<td>' + esc(row.phone_label || '—') + '</td>' +
                     '<td><div class="budget-row-actions">' +
                     (unconfirmed ? '<button type="button" class="btn btn-primary" data-act="confirm" data-id="' + row.id + '">' + esc(t('budget.btn.confirm')) + '</button>'

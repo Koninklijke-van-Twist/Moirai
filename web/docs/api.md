@@ -237,6 +237,13 @@ Gebruikt dezelfde API-keys en dezelfde authenticatie als de rest van `api.php`. 
 
 Via de API kun je alleen **opvragen** en **een aankoop toevoegen**. Zo'n aankoop krijgt altijd de status **Onbevestigd**. Bevestigen, aanpassen en verwijderen kan alleen een ICT-admin in de UI (tab Telefoonbudget).
 
+**Onbevestigde aankopen tellen niet mee** (sinds 9 okt 2026). Alleen bevestigde aankopen:
+- verlagen het budget;
+- starten de maandopbouw opnieuw;
+- bepalen `laatste_aankoop`, `volgende_opbouw`, `telefoon_waarde`, `totaal_besteed_*` en `totale_eigen_bijdrage_*`.
+
+Een onbevestigde aankoop staat wel in `aankopen`, met `"telt_mee": false`. Zijn `eigen_bijdrage_*` (en bij `budget_add_purchase` ook `budget_voor_*`/`budget_na_*`) is dan een **wat-als**: zo zou het uitvallen als de aankoop bevestigd wordt. Het totaal van de onbevestigde aankopen staat in `onbevestigd_bedrag_cents`/`_eur`. Direct na `budget_add_purchase` is `budget.budget_cents` dus nog ongewijzigd.
+
 ### `budget_get` (alias `budget`), GET of POST
 
 | Parameter | Verplicht | |
@@ -259,6 +266,7 @@ curl -s -H "X-API-Key: $MOIRAI_API_KEY" \
   "maximum_cents": null,
   "budget_cents": 47500, "budget_eur": "475.00",
   "totaal_besteed_cents": 80000, "totaal_besteed_eur": "800.00",
+  "onbevestigd_bedrag_cents": 0, "onbevestigd_bedrag_eur": "0.00",
   "totale_eigen_bijdrage_cents": 17500, "totale_eigen_bijdrage_eur": "175.00",
   "laatste_aankoop": "2025-02-28",
   "telefoon_waarde": { "purchase_id": 2, "waarde_cents": 0, "waarde_eur": "0.00", "maanden": 19 },
@@ -270,7 +278,7 @@ curl -s -H "X-API-Key: $MOIRAI_API_KEY" \
       "prijs_cents": 35000, "prijs_eur": "350.00",
       "eigen_bijdrage_cents": 17500, "eigen_bijdrage_eur": "175.00",
       "telefoon": "Voorbeeldfoon 15", "notitie": "Asclepius #4711",
-      "status": "onbevestigd", "status_label": "Onbevestigd",
+      "status": "bevestigd", "status_label": "Bevestigd", "telt_mee": true,
       "toestel": { "imei": "350000000000001", "model": "Voorbeeldfoon 15" },
       "client_ref": "asclepius-4711"
     }
@@ -312,13 +320,13 @@ Een nieuwe aankoop geeft `201`. Herhaal je hetzelfde verzoek met dezelfde `clien
     "id": 3, "datum": "2026-10-08", "prijs_cents": 64900, "prijs_eur": "649.00",
     "eigen_bijdrage_cents": 4900, "eigen_bijdrage_eur": "49.00",
     "telefoon": "Voorbeeldfoon 16", "notitie": "Asclepius #4712",
-    "status": "onbevestigd", "status_label": "Onbevestigd", "toestel": null,
+    "status": "onbevestigd", "status_label": "Onbevestigd", "telt_mee": false, "toestel": null,
     "client_ref": "asclepius-4712",
     "budget_voor_cents": 60000, "budget_voor_eur": "600.00",
     "budget_na_cents": 0, "budget_na_eur": "0.00"
   },
   "eigen_bijdrage_cents": 4900, "eigen_bijdrage_eur": "49.00",
-  "budget": { "…": "zelfde velden als budget_get, na deze aankoop" }
+  "budget": { "…": "zelfde velden als budget_get; budget_cents nog ongewijzigd, want de aankoop is onbevestigd" }
 }
 ```
 

@@ -150,8 +150,15 @@ expect($person['budget_cents'] === 60000, 'start date gives 600');
 $a = moirai_budget_add_purchase('anna@kvt.nl', ['prijs' => '400', 'datum' => '2025-01-10', 'telefoon' => 'Testfoon A1', 'notitie' => "Regel 1\nRegel 2"]);
 expect($a['status'] === MOIRAI_BUDGET_STATUS_UNCONFIRMED, 'new purchase is unconfirmed');
 expect($a['telefoon'] === 'Testfoon A1' && $a['notitie'] === "Regel 1\nRegel 2", 'telefoon and multi-line notitie stored');
+expect($a['telt_mee'] === false && moirai_budget_person('anna@kvt.nl')['budget_cents'] === 60000, 'unconfirmed purchase has no effect on the budget');
+expect((int) $a['eigen_bijdrage_cents'] === 0 && (int) $a['budget_na_cents'] === 20000, 'unconfirmed purchase shows what-if-confirmed figures');
+expect(moirai_budget_person('anna@kvt.nl')['telefoon_waarde'] === null && moirai_budget_person('anna@kvt.nl')['laatste_aankoop'] === null, 'unconfirmed purchase: no phone value, no last purchase');
+$a = moirai_budget_set_status((int) $a['id'], MOIRAI_BUDGET_STATUS_CONFIRMED);
+expect($a['telt_mee'] === true && moirai_budget_person('anna@kvt.nl')['budget_cents'] === 20000 + 20 * 2500, 'confirmed purchase lowers the budget and restarts accrual');
 $b = moirai_budget_add_purchase('anna@kvt.nl', ['prijs' => '350', 'datum' => '2025-03-10']);
 expect((int) $b['id'] === (int) $a['id'] + 1, 'auto-increment id');
+expect(moirai_budget_person('anna@kvt.nl')['budget_cents'] === 20000 + 20 * 2500, 'unconfirmed second purchase does not reset accrual');
+$b = moirai_budget_set_status((int) $b['id'], MOIRAI_BUDGET_STATUS_CONFIRMED);
 expect((int) $b['budget_voor_cents'] === 25000 && (int) $b['eigen_bijdrage_cents'] === 10000, 'stored own contribution 100 (budget 250, price 350)');
 $default = moirai_budget_add_purchase('anna@kvt.nl', ['prijs' => '1']);
 expect($default['datum'] === '2026-10-08', 'date defaults to today');
@@ -166,6 +173,8 @@ expect($a2['telefoon'] === 'Testfoon A1 Pro' && $a2['notitie'] === '' && (int) $
 
 // Aankoop met datum in het verleden, vóór bestaande aankopen.
 $early = moirai_budget_add_purchase('anna@kvt.nl', ['prijs' => '500', 'datum' => '2024-06-01']);
+expect((int) moirai_budget_computed_purchase((int) $a['id'])['budget_voor_cents'] === 60000, 'unconfirmed past purchase does not change later purchases');
+$early = moirai_budget_set_status((int) $early['id'], MOIRAI_BUDGET_STATUS_CONFIRMED);
 $a3 = moirai_budget_computed_purchase((int) $a['id']);
 expect((int) $early['budget_voor_cents'] === 60000 && (int) $early['budget_na_cents'] === 10000, 'past purchase uses budget on its date');
 expect((int) $a3['budget_voor_cents'] === 10000 + 7 * 2500, 'later purchase recalculated after inserting past purchase');
@@ -185,13 +194,16 @@ expect($person['telefoon_waarde']['value_cents'] === max(0, 35000 - 18 * 2500), 
 // --- Statusovergangen --------------------------------------------------------
 
 $id = (int) $a['id'];
+moirai_budget_set_status($id, MOIRAI_BUDGET_STATUS_UNCONFIRMED);
 expect(moirai_budget_set_status($id, MOIRAI_BUDGET_STATUS_CONFIRMED)['status'] === 'bevestigd', 'confirm: onbevestigd -> bevestigd');
 expect(invalid_message(static fn() => moirai_budget_set_status($id, MOIRAI_BUDGET_STATUS_CONFIRMED)) === LOC('budget.error.status_transition'), 'cannot confirm twice');
 expect(moirai_budget_set_status($id, MOIRAI_BUDGET_STATUS_UNCONFIRMED)['status'] === 'onbevestigd', 'unconfirm: bevestigd -> onbevestigd');
 expect(invalid_message(static fn() => moirai_budget_set_status($id, 'gek')) === LOC('budget.error.status_transition'), 'unknown status rejected');
-$before = moirai_budget_person('anna@kvt.nl')['budget_cents'];
+// Met a onbevestigd telt alleen b (350 op 2025-03-10, budget 600 -> rest 250): 250 + 18 x 25.
+expect(moirai_budget_person('anna@kvt.nl')['budget_cents'] === 25000 + 18 * 2500, 'unconfirmed purchase excluded from the budget');
 moirai_budget_set_status($id, MOIRAI_BUDGET_STATUS_CONFIRMED);
-expect(moirai_budget_person('anna@kvt.nl')['budget_cents'] === $before, 'unconfirmed purchases count in budget (same budget after confirm)');
+$before = moirai_budget_person('anna@kvt.nl')['budget_cents'];
+expect($before === 18 * 2500, 'after confirming, the purchase counts again');
 
 // --- Rechten + CSRF ----------------------------------------------------------
 

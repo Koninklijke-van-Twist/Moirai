@@ -11,7 +11,10 @@
  * - Hele maand: zie moirai_budget_months_between() (dag-van-de-maand bereikt).
  * - Vóór de eerste aankoop: geen opbouw (MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE).
  * - Maximum: instelling max_cents, 0 = geen maximum.
- * - Onbevestigde aankopen tellen mee (MOIRAI_BUDGET_COUNT_UNCONFIRMED).
+ * - Alleen BEVESTIGDE aankopen tellen mee (Tim, 9 okt 2026; MOIRAI_BUDGET_COUNT_UNCONFIRMED = false):
+ *   alleen die verlagen het budget, resetten de maandopbouw en bepalen de telefoonwaarde.
+ *   Bij een onbevestigde aankoop is eigen_bijdrage/budget_voor/budget_na een 'wat-als-bevestigd'-
+ *   berekening (telt_mee = false); hij heeft geen effect op het budget.
  */
 
 declare(strict_types=1);
@@ -24,8 +27,8 @@ const MOIRAI_BUDGET_DEFAULT_MAX_CENTS = 0;
 const MOIRAI_BUDGET_DEFAULT_DEPRECIATION_CENTS = 2500;
 /** Letterlijke lezing van Tim: vóór de eerste aankoop blijft het budget het startbudget. */
 const MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE = false;
-/** Onbevestigde aankopen tellen mee in het budget (voorkomt dubbel bestellen). */
-const MOIRAI_BUDGET_COUNT_UNCONFIRMED = true;
+/** Onbevestigde aankopen hebben geen effect op het budget (Tim, 9 okt 2026). */
+const MOIRAI_BUDGET_COUNT_UNCONFIRMED = false;
 const MOIRAI_BUDGET_STATUS_UNCONFIRMED = 'onbevestigd';
 const MOIRAI_BUDGET_STATUS_CONFIRMED = 'bevestigd';
 const MOIRAI_BUDGET_PAGE_SIZE = 25;
@@ -315,7 +318,7 @@ function moirai_budget_timeline(?string $startDate, array $purchases, array $set
         $purchase['budget_voor_cents'] = $available;
         $purchase['eigen_bijdrage_cents'] = $own;
         $purchase['budget_na_cents'] = $rest;
-        $counts = MOIRAI_BUDGET_COUNT_UNCONFIRMED || ($purchase['status'] ?? '') === MOIRAI_BUDGET_STATUS_CONFIRMED;
+        $counts = moirai_budget_purchase_counts($purchase);
         $purchase['telt_mee'] = $counts;
         if ($counts) {
             $lastDate = (string) $purchase['datum'];
@@ -325,6 +328,12 @@ function moirai_budget_timeline(?string $startDate, array $purchases, array $set
     }
 
     return ['purchases' => $out, 'last_date' => $lastDate, 'last_rest' => $lastRest];
+}
+
+/** Telt deze aankoop mee in het budget? Zonder status (pure berekeningen) = bevestigd. */
+function moirai_budget_purchase_counts(array $purchase): bool
+{
+    return MOIRAI_BUDGET_COUNT_UNCONFIRMED || ($purchase['status'] ?? MOIRAI_BUDGET_STATUS_CONFIRMED) === MOIRAI_BUDGET_STATUS_CONFIRMED;
 }
 
 function moirai_budget_available_from_state(?string $startDate, ?string $lastDate, ?int $lastRest, string $onDate, array $settings): int
@@ -362,6 +371,8 @@ function moirai_budget_available_on(?string $startDate, array $purchases, string
 /** Informatief: prijs laatste aankoop min afschrijving per hele maand, minimaal 0. */
 function moirai_budget_phone_value(array $purchases, string $onDate, array $settings): ?array
 {
+    // Alleen aankopen die meetellen (bevestigd) bepalen de telefoonwaarde.
+    $purchases = array_values(array_filter($purchases, 'moirai_budget_purchase_counts'));
     if ($purchases === []) {
         return null;
     }
@@ -659,6 +670,7 @@ function moirai_budget_public_purchase(array $row): array
         'budget_voor_cents' => (int) $row['budget_voor_cents'],
         'budget_na_cents' => (int) $row['budget_na_cents'],
         'status' => (string) $row['status'],
+        'telt_mee' => moirai_budget_purchase_counts($row),
         'telefoon' => (string) ($row['telefoon'] ?? ''),
         'notitie' => (string) ($row['notitie'] ?? ''),
         'phone_imei' => $row['phone_imei'] !== null ? (string) $row['phone_imei'] : null,
@@ -697,7 +709,8 @@ function moirai_budget_person(string $email, string $fallbackName = ''): array
         $p['phone_label'] = $device !== null ? trim(($device['model'] ?? '') . ' · ' . $p['phone_imei'], ' ·') : $p['phone_imei'];
     }
     unset($p);
-    $last = $rows !== [] ? (string) end($rows)['datum'] : null;
+    $counted = array_values(array_filter($rows, 'moirai_budget_purchase_counts'));
+    $last = $counted !== [] ? (string) end($counted)['datum'] : null;
 
     return [
         'email' => $email,
@@ -1705,7 +1718,7 @@ function moirai_budget_rules_summary(array $settings): array
         'Na elke aankoop komt er ' . moirai_budget_format_cents((int) $settings['monthly_cents']) . ' per hele maand bij (een maand telt zodra de dag van de aankoop is bereikt).',
         MOIRAI_BUDGET_ACCRUE_BEFORE_FIRST_PURCHASE ? 'Ook vóór de eerste aankoop is er opbouw vanaf de indiensttreding.' : 'Vóór de eerste aankoop is er geen opbouw.',
         (int) $settings['max_cents'] > 0 ? 'Maximum budget: ' . moirai_budget_format_cents((int) $settings['max_cents']) . '.' : 'Er is geen maximum budget.',
-        MOIRAI_BUDGET_COUNT_UNCONFIRMED ? 'Onbevestigde aankopen tellen mee in het budget.' : 'Alleen bevestigde aankopen tellen mee.',
+        MOIRAI_BUDGET_COUNT_UNCONFIRMED ? 'Onbevestigde aankopen tellen mee in het budget.' : 'Alleen bevestigde aankopen tellen mee: een onbevestigde aankoop verlaagt het budget niet, reset de opbouw niet en telt niet voor de telefoonwaarde. Bij een onbevestigde aankoop is de eigen bijdrage wat die zou worden als hij bevestigd wordt.',
         'Huidige waarde telefoon (informatief): prijs laatste aankoop min ' . moirai_budget_format_cents((int) $settings['depreciation_cents']) . ' per hele maand, minimaal 0.',
     ];
 }
@@ -1721,10 +1734,18 @@ function moirai_budget_api_summary(string $email): array
     $value = moirai_budget_phone_value($rows, $today, $settings);
     $spent = 0;
     $own = 0;
+    $pending = 0;
+    $lastCounted = null;
     $purchases = [];
     foreach ($rows as $row) {
-        $spent += (int) $row['prijs_cents'];
-        $own += (int) $row['eigen_bijdrage_cents'];
+        $counts = moirai_budget_purchase_counts($row);
+        if ($counts) {
+            $spent += (int) $row['prijs_cents'];
+            $own += (int) $row['eigen_bijdrage_cents'];
+            $lastCounted = (string) $row['datum'];
+        } else {
+            $pending += (int) $row['prijs_cents'];
+        }
         $device = $row['phone_imei'] !== null ? moirai_get_device('phone', (string) $row['phone_imei']) : null;
         $purchases[] = [
             'id' => (int) $row['id'],
@@ -1737,6 +1758,8 @@ function moirai_budget_api_summary(string $email): array
             'notitie' => (string) $row['notitie'],
             'status' => (string) $row['status'],
             'status_label' => $row['status'] === MOIRAI_BUDGET_STATUS_CONFIRMED ? 'Bevestigd' : 'Onbevestigd',
+            // false = onbevestigd: geen effect op het budget; eigen_bijdrage is dan "als hij bevestigd wordt".
+            'telt_mee' => $counts,
             'toestel' => $row['phone_imei'] !== null ? [
                 'imei' => (string) $row['phone_imei'],
                 'model' => (string) ($device['model'] ?? ''),
@@ -1758,9 +1781,11 @@ function moirai_budget_api_summary(string $email): array
         'budget_eur' => moirai_budget_eur($budget),
         'totaal_besteed_cents' => $spent,
         'totaal_besteed_eur' => moirai_budget_eur($spent),
+        'onbevestigd_bedrag_cents' => $pending,
+        'onbevestigd_bedrag_eur' => moirai_budget_eur($pending),
         'totale_eigen_bijdrage_cents' => $own,
         'totale_eigen_bijdrage_eur' => moirai_budget_eur($own),
-        'laatste_aankoop' => $rows !== [] ? (string) end($rows)['datum'] : null,
+        'laatste_aankoop' => $lastCounted,
         'telefoon_waarde' => $value === null ? null : [
             'purchase_id' => $value['purchase_id'],
             'waarde_cents' => $value['value_cents'],

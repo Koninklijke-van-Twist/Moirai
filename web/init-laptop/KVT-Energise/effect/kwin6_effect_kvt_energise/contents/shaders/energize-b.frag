@@ -69,9 +69,8 @@ out vec4 fragColor;
 // KWin 6.7 (#version 140) heeft y=0 onderaan texcoord0. De spiegel zet de
 // oorsprong bovenaan, zoals de effectlogica verwacht. KWin 6.8 compileert als
 // #version 300 es en levert texcoord0 al met die oorsprong; dezelfde spiegel
-// zet het effect dan verticaal gespiegeld. getInputColor spiegelt y alleen
-// als iTexCoord dat ook doet, zodat de sample op texcoord0 landt.
-// Upstream 17c300d doet dit niet.
+// zet het effect dan verticaal gespiegeld. getInputColor spiegelt y nog eens,
+// zodat texture en effect samen meedraaien. Upstream 17c300d doet dit niet.
 #if __VERSION__ >= 300
 #define iTexCoord vec2(texcoord0.x, texcoord0.y)
 #else
@@ -80,11 +79,7 @@ out vec4 fragColor;
 float uPadding = 0.0;
 
 vec4 getInputColor(vec2 coords) {
-#if __VERSION__ >= 300
-  vec4 color = texture2D(sampler, coords);
-#else
   vec4 color = texture2D(sampler, vec2(coords.x, 1.0 - coords.y));
-#endif
 
   if (color.a > 0.0) {
     color.rgb /= color.a;
@@ -124,7 +119,6 @@ uniform int textureHeight;
 // Using defines here as OpenGL ES forbids non-constant global initializers.
 #define uSize vec2(textureWidth, textureHeight)
 // Zelfde y-oorsprong als de KWIN-tak: alleen GLSL ES 3.00 (KWin 6.8) slaat de spiegel over.
-// getInputColor slaat die spiegel dan ook over, zodat de sample op texcoord0 landt.
 #if __VERSION__ >= 300
 #define iTexCoord vec2(texcoord0.x, texcoord0.y)
 #else
@@ -143,11 +137,7 @@ varying vec2 texcoord0;
 #endif
 
 vec4 getInputColor(vec2 coords) {
-#if __VERSION__ >= 300
-  vec4 color = texture2D(sampler, coords);
-#else
   vec4 color = texture2D(sampler, vec2(coords.x, 1.0 - coords.y));
-#endif
 
   if (color.a > 0.0) {
     color.rgb /= color.a;

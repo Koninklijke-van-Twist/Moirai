@@ -15,8 +15,9 @@ if [[ $mode != --build-only ]]; then
 fi
 
 # This build targets Arch's Plasma 6.7 and 6.8 layout and private API.
-# Any KWin 6.x may be installed when the build against the installed headers
-# and the check-plugin and check-config steps succeed. KWin 7.x is refused.
+# KWin 6.x and newer majors are attempted against the installed headers.
+# Installation continues only when that build and the check-plugin and
+# check-config steps succeed. A failed build is refused.
 plugin_dir=/usr/lib/qt6/plugins/kwin/effects/plugins
 plugin_file=$plugin_dir/kwin_effect_clicktween.so
 config_file=/usr/lib/qt6/plugins/kwin/effects/configs/kwin_clicktween_config.so
@@ -36,11 +37,11 @@ done
     exit 1
 }
 version=$(sed -n 's/^#define KWIN_PLUGIN_VERSION_STRING "\([^"]*\)"/\1/p' /usr/include/kwin/config-kwin.h)
-if [[ $version == 7.* ]]; then
-    echo "KWin 7.x wordt geweigerd; gevonden: $version" >&2
+kwin_major=${version%%.*}
+if [[ ! $kwin_major =~ ^[0-9]+$ ]] || (( 10#$kwin_major < 6 )); then
+    echo "Deze versie ondersteunt KWin 6.x en nieuwer (waaronder 6.7 en 6.8); gevonden: ${version:-onbekend}" >&2
     exit 1
 fi
-[[ $version == 6.* ]] || { echo "Deze versie ondersteunt KWin 6.x (waaronder 6.7 en 6.8); gevonden: ${version:-onbekend}" >&2; exit 1; }
 # errexit does not apply inside a conditional, so the build runs in its own
 # shell. A compiler or check failure then stops here, before anything is installed.
 set +e

@@ -74,10 +74,10 @@ Volledig verwijderen:
 ## Compatibiliteit en controle
 
 Dit is een experimentele native plugin voor de interne KWin 6.7- en 6.8-API.
-Na een KWin-update voer je het installatiescript opnieuw uit. Elke KWin 6.x
-wordt geïnstalleerd wanneer het bouwen tegen de geïnstalleerde headers lukt
-en de check-plugin- en check-config-stappen slagen. Lukt dat niet, dan stopt
-het script met een melding. KWin 7.x wordt geweigerd.
+Na een KWin-update voer je het installatiescript opnieuw uit. KWin 6.x en
+nieuwere majors worden geïnstalleerd wanneer het bouwen tegen de
+geïnstalleerde headers lukt en de check-plugin- en check-config-stappen
+slagen. Lukt dat niet, dan stopt het script met een melding.
 De plugin draait in KWin zelf; bewaar open werk voordat je de eerste keer
 installeert. Gelijktijdige cursor-effecten zoals Shake Cursor of Zoom kunnen
 hun eigen cursor tekenen en moeten apart worden gecontroleerd.

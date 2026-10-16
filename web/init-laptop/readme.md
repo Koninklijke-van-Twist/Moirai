@@ -11,7 +11,7 @@
 - Deze map compleet op de laptop (inclusief `enroll.sh`, `hosts.sh`, `kvt-rdp/`, `KVT-Energise/`, `kwin-click-tween/`, `bootanimation/`, `kvt-rds-connect/`, `backgr_1.png` en `kvtlogo.png`)
 - Netwerkverbinding (voor Fleet-enrollment)
 - Een account met sudo-rechten; voer het script uit als de desktop-gebruiker, niet als root-login
-- KWin 6.7 en 6.8 (elke KWin 6.x als de build en controles slagen; 7.x wordt geweigerd)
+- KWin 6.7 en 6.8 (KWin 6.x en nieuwer als de build en controles slagen; anders wordt de installatie geweigerd)
 
 ## Hoe te gebruiken
 
@@ -62,7 +62,7 @@ Het script stopt bij de eerste fout (`set -euo pipefail`). Volgorde:
    Daarna wordt het **actief gezet** als venster openen/sluiten-animatie: in `~/.config/kwinrc` onder `[Plugins]` gaan concurrerende effecten in de exclusieve categorie `toplevel-open-close-animation` uit (`scale`, `glide`, `fade` en bekende Burn-My-Windows-varianten), en `kwin6_effect_kvt_energiseEnabled=true`. Via D-Bus (`org.kde.KWin`) wordt KWin herconfigureerd, oude effecten unloaded en KVT Energise geladen. In Systeeminstellingen → Animaties hoort **KVT Energise** geselecteerd te staan.
 
 5. **Click Tween (`kwin-click-tween/`)**  
-   Installeert build-afhankelijkheden via pacman, bouwt daarna de native KWin 6.7- en 6.8-plugin als de desktop-gebruiker (`install.sh --build-only`), en plaatst de `.so`-bestanden system-wide onder `/usr/lib/qt6/plugins/kwin/effects/`. In `kwinrc` wordt `kwin_effect_clicktweenEnabled=true` gezet en het effect via D-Bus geladen. De muisaanwijzer krimpt bij links-/rechtsklikken. Zie `kwin-click-tween/README.md`.
+   Installeert build-afhankelijkheden via pacman, bouwt daarna de native plugin tegen de geïnstalleerde KWin (6.7, 6.8 en nieuwer als de build slaagt) als de desktop-gebruiker (`install.sh --build-only`), en plaatst de `.so`-bestanden system-wide onder `/usr/lib/qt6/plugins/kwin/effects/`. In `kwinrc` wordt `kwin_effect_clicktweenEnabled=true` gezet en het effect via D-Bus geladen. De muisaanwijzer krimpt bij links-/rechtsklikken. Zie `kwin-click-tween/README.md`.
 
 6. **Login-achtergrond**  
    Kopieert `backgr_1.png` naar `/usr/share/wallpapers/login-custom/backgr_1.png` (en indien aanwezig naar `/var/lib/plasmalogin/wallpapers/`).  

@@ -11,7 +11,7 @@
 - Deze map compleet op de laptop (inclusief `enroll.sh`, `hosts.sh`, `kvt-rdp/`, `KVT-Energise/`, `kwin-click-tween/`, `bootanimation/`, `kvt-rds-connect/`, `backgr_1.png` en `kvtlogo.png`)
 - Netwerkverbinding (voor Fleet-enrollment)
 - Een account met sudo-rechten; voer het script uit als de desktop-gebruiker, niet als root-login
-- KWin 6.7 en 6.8 (KWin 6.x en nieuwer als de build en controles slagen; anders wordt de installatie geweigerd)
+- KWin 6.x. Click Tween wordt gebouwd tegen de geïnstalleerde headers (6.7, 6.8 en nieuwer als de build en controles slagen; anders wordt die installatie geweigerd). KVT Energise heeft geen versiepoort: elke 6.x wordt geïnstalleerd en de installatie stopt alleen als KWin de shader niet kan laden.
 
 ## Hoe te gebruiken
 
@@ -60,6 +60,8 @@ Het script stopt bij de eerste fout (`set -euo pipefail`). Volgorde:
 
 4. **KVT Energise**  
    Draait `KVT-Energise/install.sh` als de desktop-gebruiker. Het effect wordt gekopieerd naar `~/.local/share/kwin/effects/kwin6_effect_kvt_energise`.  
+   Er is geen harde check op de KWin- of Plasma-versie. Elke KWin 6.x wordt geprobeerd. Het script unloadt het effect, vraagt KWin om te herladen en kijkt daarna in het gebruikersjournal. Alleen als daar `Shader failed to load` voor `kwin6_effect_kvt_energise` staat, stopt de installatie met een melding en de bijbehorende journalregels. Ontbreekt `journalctl` of is het journal niet leesbaar, dan gaat de installatie door met een waarschuwing.  
+   De shaders `energize-b.frag` en `energize-b_core.frag` zijn compatibel met KWin 6.7 (desktop GLSL 1.40) en KWin 6.8 (OpenGL ES, `#version 300 es`). `uSize` en `iTexCoord` zijn `#define`s, zoals upstream Burn-My-Windows dat voor OpenGL ES heeft opgelost; globale initializers vanuit uniforms zijn in GLSL ES niet toegestaan. Op GLSL 3.00 en nieuwer wordt `texture2D` naar `texture()` gezet. Op KWin 6.7 spiegelt `iTexCoord` de y-as (`1.0 - texcoord0.y`). Op KWin 6.8 (`#version 300 es`) vervalt die spiegel, omdat de texture-oorsprong daar al andersom is en de extra spiegel het effect verticaal spiegelt. Upstream-commit `17c300d` (issue #565) wijzigt die y-as niet. KWin laadt `energize-b_core.frag` zodra dat bestand aanwezig is.  
    Daarna wordt het **actief gezet** als venster openen/sluiten-animatie: in `~/.config/kwinrc` onder `[Plugins]` gaan concurrerende effecten in de exclusieve categorie `toplevel-open-close-animation` uit (`scale`, `glide`, `fade` en bekende Burn-My-Windows-varianten), en `kwin6_effect_kvt_energiseEnabled=true`. Via D-Bus (`org.kde.KWin`) wordt KWin herconfigureerd, oude effecten unloaded en KVT Energise geladen. In Systeeminstellingen → Animaties hoort **KVT Energise** geselecteerd te staan.
 
 5. **Click Tween (`kwin-click-tween/`)**  

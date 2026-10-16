@@ -222,8 +222,8 @@ install_click_tween() {
 
 	ensure_click_tween_build_deps
 
-	# install.sh weigert root en vraagt zelf sudo. Bouw daarom als gebruiker
-	# en plaats de plugins hier als root (init-device draait al met sudo).
+	# install.sh weigert root voor de gebruikersinstallatie. Bouw daarom als
+	# gebruiker en plaats de plugins hier als root (init-device draait al met sudo).
 	log "Bouw Click Tween voor gebruiker $TARGET_USER..."
 	run_as_user bash "$CLICK_TWEEN_INSTALL" --build-only
 
@@ -235,6 +235,8 @@ install_click_tween() {
 	log "Installeer Click Tween system-wide..."
 	install -Dm755 "$plugin_src" "$CLICK_TWEEN_PLUGIN"
 	install -Dm755 "$config_src" "$CLICK_TWEEN_CONFIG"
+	log "Installeer Click Tween-bron en pacman-hook..."
+	bash "$CLICK_TWEEN_INSTALL" --install-system
 
 	kwin_write_plugin "$CLICK_TWEEN_EFFECT_ID" true
 	if result="$(run_as_user qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded "$CLICK_TWEEN_EFFECT_ID" 2>/dev/null || true)" \

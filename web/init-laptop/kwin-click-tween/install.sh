@@ -4,10 +4,10 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 mode=${1:-install}
 case "$mode" in
-    install|--build-only|--uninstall) ;;
-    *) echo "Gebruik: $0 [--build-only|--uninstall]" >&2; exit 2 ;;
+    install|--build-only|--uninstall|--install-system) ;;
+    *) echo "Gebruik: $0 [--build-only|--uninstall|--install-system]" >&2; exit 2 ;;
 esac
-if [[ $mode != --build-only ]]; then
+if [[ $mode != --build-only && $mode != --install-system ]]; then
     [[ $EUID -ne 0 ]] || { echo 'Start dit script als gewone gebruiker, zonder sudo ervoor.' >&2; exit 1; }
     for tool in sudo kwriteconfig6 qdbus6; do
         command -v "$tool" >/dev/null || { echo "Ontbreekt: $tool" >&2; exit 1; }
@@ -21,11 +21,55 @@ fi
 plugin_dir=/usr/lib/qt6/plugins/kwin/effects/plugins
 plugin_file=$plugin_dir/kwin_effect_clicktween.so
 config_file=/usr/lib/qt6/plugins/kwin/effects/configs/kwin_clicktween_config.so
+share_dir=/usr/local/share/kwin-click-tween
+hook_dest=/etc/pacman.d/hooks/kwin-click-tween.hook
+source_files=(
+    clicktween.cpp
+    clicktween_config.cpp
+    check-plugin.cpp
+    check-config.cpp
+    settings.h
+    metadata.json
+    config-metadata.json
+    install.sh
+    rebuild.sh
+    kwin-click-tween.hook
+    README.md
+)
+
+run_root() {
+    if [[ $EUID -eq 0 ]]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+# Source tree for the pacman hook, plus the hook itself.
+install_system_files() {
+    local src mode
+    for src in "${source_files[@]}"; do
+        [[ -f $src ]] || { echo "Ontbreekt in de bron: $src" >&2; exit 1; }
+    done
+    for src in "${source_files[@]}"; do
+        mode=644
+        [[ $src == *.sh ]] && mode=755
+        run_root install -Dm"$mode" "$src" "$share_dir/$src"
+    done
+    run_root install -Dm644 kwin-click-tween.hook "$hook_dest"
+}
+
 if [[ $mode == --uninstall ]]; then
     kwriteconfig6 --file kwinrc --group Plugins --key kwin_effect_clicktweenEnabled false
     qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect kwin_effect_clicktween || true
-    sudo rm -f -- "$plugin_file" "$config_file"
+    sudo rm -f -- "$plugin_file" "$config_file" "$hook_dest"
+    sudo rm -rf -- "$share_dir"
     echo 'Click Tween verwijderd. Bij een D-Bus-fout: meld opnieuw aan.'
+    exit 0
+fi
+if [[ $mode == --install-system ]]; then
+    install_system_files
+    echo "Click Tween-bron staat in $share_dir; pacman-hook in $hook_dest."
     exit 0
 fi
 
@@ -91,6 +135,7 @@ sudo install -Dm755 build/kwin_effect_clicktween.so "$plugin_file.new"
 sudo mv -f -- "$plugin_file.new" "$plugin_file"
 sudo install -Dm755 build/kwin_clicktween_config.so "$config_file.new"
 sudo mv -f -- "$config_file.new" "$config_file"
+install_system_files
 # Animation defaults are compiled from settings.h (150 ms / easeOutBack,
 # 720 ms / easeOutElastic). Existing user settings take precedence.
 kwriteconfig6 --file kwinrc --group Plugins --key kwin_effect_clicktweenEnabled true

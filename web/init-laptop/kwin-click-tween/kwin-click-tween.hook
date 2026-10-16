@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = kwin
+
+[Action]
+Description = Click Tween opnieuw bouwen na een KWin-upgrade
+When = PostTransaction
+Exec = /usr/local/share/kwin-click-tween/rebuild.sh
+Depends = kwin

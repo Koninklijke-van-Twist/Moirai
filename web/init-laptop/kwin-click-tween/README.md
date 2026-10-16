@@ -49,6 +49,14 @@ gebruiker, niet met `sudo ./install.sh`. Bouwvereisten: `gcc`, `pkgconf`,
 `kcmutils`, `kwindowsystem`, `wayland`, `libepoxy` en `libdrm`.
 De meeste zijn al onderdeel van jouw Plasma-installatie.
 
+Het script plaatst de bron in `/usr/local/share/kwin-click-tween/` en een
+pacman-hook in `/etc/pacman.d/hooks/kwin-click-tween.hook`. Na een upgrade
+van het pakket `kwin` bouwt die hook opnieuw in een tijdelijke kopie, met
+dezelfde build- en checkstappen. Slagen die, dan worden de `.so`-bestanden
+atomair vervangen en zie je de melding om af en weer aan te melden. Mislukt
+het, dan blijft de vorige plugin staan en eindigt de hook met exit 0, zodat
+pacman niet faalt.
+
 Alleen bouwen zonder installeren of instellingen wijzigen:
 
 ```bash
@@ -65,7 +73,7 @@ kwriteconfig6 --file kwinrc --group Plugins --key kwin_effect_clicktweenEnabled 
 qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect kwin_effect_clicktween
 ```
 
-Volledig verwijderen:
+Volledig verwijderen (plugin, pacman-hook en systeembron):
 
 ```bash
 ./install.sh --uninstall
@@ -74,10 +82,12 @@ Volledig verwijderen:
 ## Compatibiliteit en controle
 
 Dit is een experimentele native plugin voor de interne KWin 6.7- en 6.8-API.
-Na een KWin-update voer je het installatiescript opnieuw uit. KWin 6.x en
-nieuwere majors worden geïnstalleerd wanneer het bouwen tegen de
+KWin 6.x en nieuwere majors worden geïnstalleerd wanneer het bouwen tegen de
 geïnstalleerde headers lukt en de check-plugin- en check-config-stappen
 slagen. Lukt dat niet, dan stopt het script met een melding.
+Een upgrade van het pakket `kwin` start de pacman-hook. Die gebruikt dezelfde
+controle: elke hoofdversie wordt geprobeerd, en alleen een geslaagde build
+vervangt de plugin. Daarna meld je af en weer aan.
 De plugin draait in KWin zelf; bewaar open werk voordat je de eerste keer
 installeert. Gelijktijdige cursor-effecten zoals Shake Cursor of Zoom kunnen
 hun eigen cursor tekenen en moeten apart worden gecontroleerd.

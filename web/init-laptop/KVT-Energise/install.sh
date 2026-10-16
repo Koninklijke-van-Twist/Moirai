@@ -10,6 +10,9 @@ DEST="$DEST_DIR/$EFFECT_ID"
 
 die() { echo "Error: $*" >&2; exit 1; }
 
+# Geen harde KWin- of Plasma-versiecheck. Elke KWin 6.x wordt geïnstalleerd.
+# Alleen een echte shaderfout ("Shader failed to load") weigert de installatie.
+
 echo "==> KVT Energise installer"
 echo
 
@@ -63,27 +66,61 @@ else
   echo "Warning: kwriteconfig6/5 not found; enable the effect manually in System Settings."
 fi
 
-# Ask KWin to reload config / load effect
+# Ask KWin to reload config / load effect. Unload first so an already running
+# copy compiles the shaders that were just copied, instead of keeping the old ones.
 reload_kwin() {
   if command -v qdbus6 >/dev/null 2>&1; then
+    qdbus6 org.kde.KWin /Effects unloadEffect "$EFFECT_ID" >/dev/null 2>&1 || true
     qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     qdbus6 org.kde.KWin /Effects loadEffect "$EFFECT_ID" >/dev/null 2>&1 || true
     return 0
   fi
   if command -v qdbus >/dev/null 2>&1; then
+    qdbus org.kde.KWin /Effects unloadEffect "$EFFECT_ID" >/dev/null 2>&1 || true
     qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     qdbus org.kde.KWin /Effects loadEffect "$EFFECT_ID" >/dev/null 2>&1 || true
     return 0
   fi
   if command -v dbus-send >/dev/null 2>&1; then
+    dbus-send --session --dest=org.kde.KWin /Effects org.kde.kwin.Effects.unloadEffect string:"$EFFECT_ID" >/dev/null 2>&1 || true
     dbus-send --session --dest=org.kde.KWin /KWin org.kde.KWin.reconfigure >/dev/null 2>&1 || true
+    dbus-send --session --dest=org.kde.KWin /Effects org.kde.kwin.Effects.loadEffect string:"$EFFECT_ID" >/dev/null 2>&1 || true
     return 0
   fi
   return 1
 }
 
+# KWin logt "Shader failed to load" in het gebruikersjournal als de fragmentshader
+# niet compileert. Dat is hetzelfde falen als na de overstap naar KWin 6.8.
+check_shader_loaded() {
+  local since="$1"
+  local log
+
+  if ! command -v journalctl >/dev/null 2>&1; then
+    echo "Warning: journalctl niet gevonden; niet gecontroleerd of de shader compileert."
+    return 0
+  fi
+
+  sleep 2
+  if ! log="$(journalctl --user -o cat --since "$since" 2>/dev/null)"; then
+    echo "Warning: gebruikersjournal niet leesbaar; niet gecontroleerd of de shader compileert."
+    return 0
+  fi
+
+  if printf '%s\n' "$log" | grep -F "Shader failed to load" | grep -F "$EFFECT_ID" >/dev/null; then
+    echo "Error: KWin meldt dat de Energise-shader niet geladen is (Shader failed to load)." >&2
+    echo "De vensteranimatie werkt dan niet. Relevante journalregels:" >&2
+    printf '%s\n' "$log" | grep -E "Failed to compile fragment shader|initializer of global|Shader failed to load|${EFFECT_ID}" >&2 || true
+    exit 1
+  fi
+
+  echo "Journal gecontroleerd: geen 'Shader failed to load' voor ${EFFECT_ID}."
+}
+
+shader_log_since="$(date '+%Y-%m-%d %H:%M:%S')"
 if reload_kwin; then
   echo "Requested KWin reconfigure."
+  check_shader_loaded "$shader_log_since"
 else
   echo "Could not talk to KWin over D-Bus; log out/in or run: systemsettings kcm_kwin_effects"
 fi

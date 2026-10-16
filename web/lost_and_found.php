@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 require_once __DIR__ . '/moirai_data.php';
 require_once __DIR__ . '/login_path.php';

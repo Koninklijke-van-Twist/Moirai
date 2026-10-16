@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 /**
  * Backward-compatible wrapper. Prefer lib/kvt-chat directly in new code.

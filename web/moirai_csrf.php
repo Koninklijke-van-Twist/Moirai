@@ -11,6 +11,7 @@
  */
 
 declare(strict_types=1);
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 const MOIRAI_CSRF_HEADER = 'HTTP_X_CSRF_TOKEN';
 const MOIRAI_CSRF_FIELD = '_csrf';

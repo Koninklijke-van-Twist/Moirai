@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 /**
  * Host boot for kvt-chat endpoints (api.php / avatar.php) and pages that render the modal.

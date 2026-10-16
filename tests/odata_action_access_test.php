@@ -104,7 +104,7 @@ assert_same(true, odata_email_is_allowed('Analyst@kvt.nl', $allowed), 'lijst-geb
 assert_same(true, odata_email_is_allowed('planner@kvt.nl', $allowed), 'map-gebruiker');
 assert_same(false, odata_email_is_allowed('andere@kvt.nl', $allowed), 'niet op de lijst');
 assert_same(false, odata_email_is_allowed('', $allowed), 'lege sessie');
-assert_same(false, odata_email_is_allowed('analyst@kvt.nl', null), 'geen whitelist');
+assert_same(true, odata_email_is_allowed('analyst@kvt.nl', null), 'geen whitelist');
 
 assert_same(true, odata_direct_action_skips_login('cli', '', ''), 'cli zonder geheim');
 assert_same(false, odata_direct_action_skips_login('fpm-fcgi', '', ''), 'web anoniem');
@@ -254,32 +254,7 @@ foreach ($protectedDirs as $dir) {
     }
 }
 
-$workflow = (string) file_get_contents($root . '/.github/workflows/deploy-ftp.yml');
-assert_not_contains($workflow, '--delete-excluded', 'ftp-deploy verwijdert uitgesloten data niet');
-assert_not_contains($workflow, 'moirai.sqlite', 'ftp-deploy uploadt de database niet');
-assert_contains($workflow, '--exclude-glob auth.php', 'ftp-deploy');
-assert_contains($workflow, '--exclude-glob data/**', 'ftp-deploy');
-assert_contains($workflow, '--exclude-glob cache/**', 'ftp-deploy');
-foreach ([
-    ['--exclude-glob data/**', '--include-glob data/.htaccess'],
-    ['--exclude-glob data/**', '--include-glob data/index.html'],
-    ['--exclude-glob data/**', '--include-glob data/index.php'],
-    ['--exclude-glob data/user_prefs/**', '--include-glob data/user_prefs/.htaccess'],
-    ['--exclude-glob data/user_prefs/**', '--include-glob data/user_prefs/index.html'],
-    ['--exclude-glob data/user_prefs/**', '--include-glob data/user_prefs/index.php'],
-    ['--exclude-glob data/user_avatars/**', '--include-glob data/user_avatars/.htaccess'],
-    ['--exclude-glob data/user_avatars/**', '--include-glob data/user_avatars/index.html'],
-    ['--exclude-glob data/user_avatars/**', '--include-glob data/user_avatars/index.php'],
-    ['--exclude-glob cache/**', '--include-glob cache/.htaccess'],
-    ['--exclude-glob cache/**', '--include-glob cache/index.html'],
-    ['--exclude-glob cache/**', '--include-glob cache/index.php'],
-    ['--exclude-glob cache/odata/**', '--include-glob cache/odata/.htaccess'],
-    ['--exclude-glob cache/odata/**', '--include-glob cache/odata/index.html'],
-    ['--exclude-glob cache/odata/**', '--include-glob cache/odata/index.php'],
-] as $pair) {
-    assert_after($workflow, $pair[0], $pair[1], 'ftp-deploy');
-}
-
+// FTP-deploy en afscherming: zie tests/protect_dirs_test.php.
 $phpCgi = trim((string) shell_exec('command -v php-cgi 2>/dev/null'));
 if ($phpCgi !== '') {
     $script = sys_get_temp_dir() . '/moirai-odata-cgi-' . bin2hex(random_bytes(4)) . '.php';

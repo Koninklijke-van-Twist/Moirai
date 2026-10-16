@@ -67,7 +67,16 @@ out vec4 fragColor;
 
 // Using defines here as OpenGL ES forbids non-constant global initializers.
 #define uSize vec2(textureWidth, textureHeight)
+// KWin 6.7 (#version 140) heeft y=0 onderaan texcoord0. De spiegel zet de
+// oorsprong bovenaan, zoals de effectlogica verwacht. KWin 6.8 compileert als
+// #version 300 es en levert texcoord0 al met die oorsprong; dezelfde spiegel
+// zet het effect dan verticaal gespiegeld. getInputColor spiegelt y nog eens,
+// zodat texture en effect samen meedraaien. Upstream 17c300d doet dit niet.
+#if __VERSION__ >= 300
+#define iTexCoord vec2(texcoord0.x, texcoord0.y)
+#else
 #define iTexCoord vec2(texcoord0.x, 1.0 - texcoord0.y)
+#endif
 float uPadding = 0.0;
 
 vec4 getInputColor(vec2 coords) {
@@ -110,7 +119,12 @@ uniform int textureHeight;
 
 // Using defines here as OpenGL ES forbids non-constant global initializers.
 #define uSize vec2(textureWidth, textureHeight)
+// Zelfde y-oorsprong als de KWIN-tak: alleen GLSL ES 3.00 (KWin 6.8) slaat de spiegel over.
+#if __VERSION__ >= 300
+#define iTexCoord vec2(texcoord0.x, texcoord0.y)
+#else
 #define iTexCoord vec2(texcoord0.x, 1.0 - texcoord0.y)
+#endif
 float uPadding = 0.0;
 
 // KWin 6.7/6.8 prepend a core/ES prelude (#version 140 or 300 es). Older KWin

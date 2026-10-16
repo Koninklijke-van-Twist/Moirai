@@ -21,6 +21,10 @@ KWin 6.8 compiles effect shaders as #version 300 es. GLSL ES rejects global
 initializers that are not constant expressions, so uSize and iTexCoord are
 macros (same fix as upstream Burn-My-Windows for OpenGL ES), not globals
 initialized from uniforms. texture2D is aliased to texture() on GLSL 3.00+.
+On KWin 6.7, iTexCoord flips Y (texcoord0 origin is the bottom). On KWin 6.8
+(#version 300 es) that flip is skipped, because the texture origin is already
+the other way and the flip mirrors the effect vertically. Upstream commit
+17c300d does not change this; it only replaces the global initializers.
 Both energize-b.frag (KWIN_LEGACY) and energize-b_core.frag (KWIN) follow this.
 KWin loads the _core file when it is present.
 

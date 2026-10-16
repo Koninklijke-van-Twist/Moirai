@@ -14,7 +14,10 @@ if [[ $mode != --build-only ]]; then
     done
 fi
 
-# This build intentionally targets Arch's Plasma 6.7 layout and private API.
+# This build targets Arch's Plasma 6.7 and 6.8 layout and private API.
+# KWin 6.x and newer majors are attempted against the installed headers.
+# Installation continues only when that build and the check-plugin and
+# check-config steps succeed. A failed build is refused.
 plugin_dir=/usr/lib/qt6/plugins/kwin/effects/plugins
 plugin_file=$plugin_dir/kwin_effect_clicktween.so
 config_file=/usr/lib/qt6/plugins/kwin/effects/configs/kwin_clicktween_config.so
@@ -34,30 +37,46 @@ done
     exit 1
 }
 version=$(sed -n 's/^#define KWIN_PLUGIN_VERSION_STRING "\([^"]*\)"/\1/p' /usr/include/kwin/config-kwin.h)
-[[ $version == 6.7.* ]] || { echo "Deze versie ondersteunt KWin 6.7.x; gevonden: $version" >&2; exit 1; }
-mkdir -p build
-read -r -a qt_flags <<< "$(pkg-config --cflags Qt6Core Qt6Gui Qt6Quick Qt6DBus Qt6Widgets wayland-server epoxy libdrm)"
-read -r -a qt_libs <<< "$(pkg-config --libs Qt6Core Qt6Gui Qt6Quick Qt6DBus Qt6Widgets wayland-server epoxy libdrm)"
-includes=(-I/usr/include/kwin -I/usr/include/KF6/KCoreAddons -I/usr/include/KF6/KConfig -I/usr/include/KF6/KConfigCore -I/usr/include/KF6/KCMUtils -I/usr/include/KF6/KCMUtilsCore -I/usr/include/KF6/KWindowSystem -I. -Ibuild)
-/usr/lib/qt6/moc "${qt_flags[@]}" "${includes[@]}" clicktween.cpp -o build/clicktween.moc
-g++ -std=c++23 -O2 -Wall -Wextra -fPIC -shared -Wl,-z,defs \
-    "${qt_flags[@]}" "${includes[@]}" clicktween.cpp -o build/kwin_effect_clicktween.so \
-    -lkwin -lKF6CoreAddons -lKF6ConfigCore "${qt_libs[@]}"
-/usr/lib/qt6/moc "${qt_flags[@]}" "${includes[@]}" clicktween_config.cpp -o build/clicktween_config.moc
-g++ -std=c++23 -O2 -Wall -Wextra -fPIC -shared -Wl,-z,defs \
-    "${qt_flags[@]}" "${includes[@]}" clicktween_config.cpp -o build/kwin_clicktween_config.so \
-    -lKF6KCMUtils -lKF6KCMUtilsCore -lKF6CoreAddons -lKF6ConfigCore "${qt_libs[@]}"
-g++ -std=c++17 -fPIC "${qt_flags[@]}" check-plugin.cpp -o build/check-plugin "${qt_libs[@]}"
-build/check-plugin "$PWD/build/kwin_effect_clicktween.so"
-/usr/lib/qt6/moc "${qt_flags[@]}" check-config.cpp -o build/check-config.moc
-g++ -std=c++23 -fPIC "${qt_flags[@]}" "${includes[@]}" check-config.cpp -o build/check-config \
-    -lKF6KCMUtils -lKF6KCMUtilsCore -lKF6CoreAddons -lKF6ConfigCore "${qt_libs[@]}"
-# Isolate configuration and D-Bus so the check cannot change the live desktop.
-test_config=$(mktemp -d)
-QT_QPA_PLATFORM=offscreen XDG_CONFIG_HOME="$test_config" \
-    dbus-run-session -- build/check-config "$PWD/build/kwin_clicktween_config.so"
-rm -rf -- "$test_config"
-echo "Gebouwd voor KWin $version; instellingenmodule en 31 curves gecontroleerd."
+kwin_major=${version%%.*}
+if [[ ! $kwin_major =~ ^[0-9]+$ ]] || (( 10#$kwin_major < 6 )); then
+    echo "Deze versie ondersteunt KWin 6.x en nieuwer (waaronder 6.7 en 6.8); gevonden: ${version:-onbekend}" >&2
+    exit 1
+fi
+# errexit does not apply inside a conditional, so the build runs in its own
+# shell. A compiler or check failure then stops here, before anything is installed.
+set +e
+(
+    set -euo pipefail
+    mkdir -p build
+    read -r -a qt_flags <<< "$(pkg-config --cflags Qt6Core Qt6Gui Qt6Quick Qt6DBus Qt6Widgets wayland-server epoxy libdrm)"
+    read -r -a qt_libs <<< "$(pkg-config --libs Qt6Core Qt6Gui Qt6Quick Qt6DBus Qt6Widgets wayland-server epoxy libdrm)"
+    includes=(-I/usr/include/kwin -I/usr/include/KF6/KCoreAddons -I/usr/include/KF6/KConfig -I/usr/include/KF6/KConfigCore -I/usr/include/KF6/KCMUtils -I/usr/include/KF6/KCMUtilsCore -I/usr/include/KF6/KWindowSystem -I. -Ibuild)
+    /usr/lib/qt6/moc "${qt_flags[@]}" "${includes[@]}" clicktween.cpp -o build/clicktween.moc
+    g++ -std=c++23 -O2 -Wall -Wextra -fPIC -shared -Wl,-z,defs \
+        "${qt_flags[@]}" "${includes[@]}" clicktween.cpp -o build/kwin_effect_clicktween.so \
+        -lkwin -lKF6CoreAddons -lKF6ConfigCore "${qt_libs[@]}"
+    /usr/lib/qt6/moc "${qt_flags[@]}" "${includes[@]}" clicktween_config.cpp -o build/clicktween_config.moc
+    g++ -std=c++23 -O2 -Wall -Wextra -fPIC -shared -Wl,-z,defs \
+        "${qt_flags[@]}" "${includes[@]}" clicktween_config.cpp -o build/kwin_clicktween_config.so \
+        -lKF6KCMUtils -lKF6KCMUtilsCore -lKF6CoreAddons -lKF6ConfigCore "${qt_libs[@]}"
+    g++ -std=c++17 -fPIC "${qt_flags[@]}" check-plugin.cpp -o build/check-plugin "${qt_libs[@]}"
+    build/check-plugin "$PWD/build/kwin_effect_clicktween.so"
+    /usr/lib/qt6/moc "${qt_flags[@]}" check-config.cpp -o build/check-config.moc
+    g++ -std=c++23 -fPIC "${qt_flags[@]}" "${includes[@]}" check-config.cpp -o build/check-config \
+        -lKF6KCMUtils -lKF6KCMUtilsCore -lKF6CoreAddons -lKF6ConfigCore "${qt_libs[@]}"
+    # Isolate configuration and D-Bus so the check cannot change the live desktop.
+    test_config=$(mktemp -d)
+    QT_QPA_PLATFORM=offscreen XDG_CONFIG_HOME="$test_config" \
+        dbus-run-session -- build/check-config "$PWD/build/kwin_clicktween_config.so"
+    rm -rf -- "$test_config"
+    echo "Gebouwd voor KWin $version; instellingenmodule en 31 curves gecontroleerd."
+)
+build_status=$?
+set -e
+if [[ $build_status -ne 0 ]]; then
+    echo "Bouwen tegen de geïnstalleerde KWin ${version}-headers is mislukt, of check-plugin/check-config is niet geslaagd. Installatie gestopt." >&2
+    exit 1
+fi
 [[ $mode != --build-only ]] || exit 0
 
 # Obtain credentials before touching the running effect.

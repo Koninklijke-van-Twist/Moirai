@@ -1,4 +1,4 @@
-# Click Tween voor KDE Plasma 6.7 / Wayland
+# Click Tween voor KDE Plasma 6.7 en 6.8 / Wayland
 
 De muisaanwijzer krimpt naar 80% in 150 ms wanneer links of rechts wordt
 ingedrukt. Hij blijft klein tijdens vasthouden en slepen en groeit in 720 ms
@@ -32,7 +32,7 @@ De klik wordt niet vertraagd: de animatie begint bij het indrukken.
 
 ## Installeren
 
-Voor jouw Arch-gebaseerde systeem met KWin 6.7.x:
+Voor jouw Arch-gebaseerde systeem met KWin 6.7 of 6.8:
 
 ```bash
 cd ~/kwin-click-tween
@@ -73,9 +73,11 @@ Volledig verwijderen:
 
 ## Compatibiliteit en controle
 
-Dit is een experimentele native plugin voor de interne KWin 6.7 API.
-Na een KWin-update voer je het installatiescript opnieuw uit. Andere
-KWin-minorversies worden geweigerd totdat de code daarvoor is gecontroleerd.
+Dit is een experimentele native plugin voor de interne KWin 6.7- en 6.8-API.
+Na een KWin-update voer je het installatiescript opnieuw uit. KWin 6.x en
+nieuwere majors worden geïnstalleerd wanneer het bouwen tegen de
+geïnstalleerde headers lukt en de check-plugin- en check-config-stappen
+slagen. Lukt dat niet, dan stopt het script met een melding.
 De plugin draait in KWin zelf; bewaar open werk voordat je de eerste keer
 installeert. Gelijktijdige cursor-effecten zoals Shake Cursor of Zoom kunnen
 hun eigen cursor tekenen en moeten apart worden gecontroleerd.

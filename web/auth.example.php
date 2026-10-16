@@ -19,6 +19,11 @@ $apiKeys = [
 // $ictUsers = ['ict@kvt.nl'];
 // $allowedUsers = ['ict@kvt.nl'];
 
+// Optioneel, alleen als een HTTP-runner odata.php?action=… moet aanroepen.
+// Header X-Moirai-Secret moet exact dit geheim zijn. Weglaten: geen anonieme toegang.
+// CLI (php web/nightly.php) heeft dit niet nodig.
+// $moiraiRunnerSecret = '';
+
 // Mímir (optioneel). Laat het BC-blok hieronder staan naast $mimirApi:
 // bij een Mímir-storing valt Moirai terug op die directe Business Central-credentials
 // (web, nightly.php en download_enroll.php). Zonder $mimirApi wordt alleen het BC-blok gebruikt.

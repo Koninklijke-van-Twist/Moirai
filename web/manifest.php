@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 /**
  * Serve the PWA manifest via PHP so static .webmanifest files cannot 403

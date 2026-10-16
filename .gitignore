@@ -1,19 +1,38 @@
 
 web/auth.php
 
-web/cache/
-
 BC Webservices.txt
 
-web/data/user_prefs/
-web/data/user_avatars/
-web/data/*.sqlite
-web/data/aging_nightly.lock
-web/data/filter_cache.json
-web/data/print_verify_codes.json
-web/cache/
+# Cache-JSON blijft buiten git; de afscherming wel.
+web/cache/*
+!web/cache/.htaccess
+!web/cache/index.html
+!web/cache/index.php
+!web/cache/odata/
+web/cache/odata/*
+!web/cache/odata/.htaccess
+!web/cache/odata/index.html
+!web/cache/odata/index.php
 
-data/
+# Alleen een data-map in de repowortel. web/data/ heeft een eigen patroon,
+# anders negeert "data/" ook web/data/.htaccess.
+/data/
+
+# SQLite, locks en gebruikersbestanden blijven van de server. Alleen de afscherming in git.
+web/data/*
+!web/data/.htaccess
+!web/data/index.html
+!web/data/index.php
+!web/data/user_prefs/
+!web/data/user_avatars/
+web/data/user_prefs/*
+!web/data/user_prefs/.htaccess
+!web/data/user_prefs/index.html
+!web/data/user_prefs/index.php
+web/data/user_avatars/*
+!web/data/user_avatars/.htaccess
+!web/data/user_avatars/index.html
+!web/data/user_avatars/index.php
 
 web/analytics/analytics.sqlite
 web/analytics/analytics.sqlite-*

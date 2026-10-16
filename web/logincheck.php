@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 
 
@@ -91,7 +92,7 @@ if (is_trusted_requester()) {
 
 
 
-    if (isset($allowedUsers) &&
+    if (!empty($allowedUsers) && is_array($allowedUsers) &&
 
         !moirai_email_in_list($sessionEmail, $allowedUsers)
 

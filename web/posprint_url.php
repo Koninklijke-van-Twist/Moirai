@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 /**
  * Build a posprint:// URL from a .pos document (array or JSON string).
  *

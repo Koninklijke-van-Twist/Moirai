@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 /**
  * Markup voor het tabblad Telefoonbudget (alleen ICT-admins). Wordt ge-include vanuit index.php.
  * Logica: js/telefoonbudget.js, server: budget_api.php / moirai_budget.php.

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/kvt_protect_dirs.php';
 
 /**
  * Legacy avatar URL. Prefer lib/kvt-chat/avatar.php.

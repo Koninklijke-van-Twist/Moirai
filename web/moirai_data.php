@@ -866,9 +866,10 @@ function moirai_init_schema(PDO $pdo): void
 }
 
 /**
- * SIM-kaarten: code en telefoonnummer zijn uniek. De database dwingt dat af via
- * unieke indexen op de genormaliseerde kolommen (code_norm, telefoonnummer_norm).
- * Idempotent: draait bij elke DB-connectie, net als de andere schema-stappen.
+ * SIM-kaarten: code is uniek. Een ingevuld telefoonnummer is ook uniek
+ * (telefoonnummer_norm). Een blanco kaart zonder nummer mag vaker voorkomen;
+ * de unieke index slaat lege normen over. Idempotent, ook voor een bestaande
+ * index die nog élk nummer (inclusief leeg) uniek maakte.
  */
 function moirai_migrate_simcards_table(PDO $pdo): void
 {
@@ -888,7 +889,28 @@ function moirai_migrate_simcards_table(PDO $pdo): void
         )
     ");
     $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_code_norm_unique ON simcards (code_norm)');
-    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_telefoonnummer_norm_unique ON simcards (telefoonnummer_norm)');
+    moirai_ensure_simcard_phone_unique_index($pdo);
+}
+
+/**
+ * Uniekheid alleen voor een ingevuld nummer. Lege telefoonnummer_norm valt
+ * buiten de index, zodat meerdere blanco SIM-kaarten naast elkaar kunnen.
+ */
+function moirai_ensure_simcard_phone_unique_index(PDO $pdo): void
+{
+    $sql = $pdo->query(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'simcards_telefoonnummer_norm_unique'"
+    )->fetchColumn();
+    if (is_string($sql) && preg_match('/\bWHERE\b/i', $sql) === 1) {
+        return;
+    }
+
+    $pdo->exec('DROP INDEX IF EXISTS simcards_telefoonnummer_norm_unique');
+    $pdo->exec(
+        "CREATE UNIQUE INDEX simcards_telefoonnummer_norm_unique
+         ON simcards (telefoonnummer_norm)
+         WHERE telefoonnummer_norm <> ''"
+    );
 }
 
 function moirai_migrate_laptop_os_column(PDO $pdo): void
@@ -1616,9 +1638,6 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
         if ($keyValue === '') {
             throw new InvalidArgumentException(moirai_loc('moirai.error.sim_code_required'));
         }
-        if (trim((string) ($sanitized['telefoonnummer'] ?? '')) === '') {
-            throw new InvalidArgumentException(moirai_loc('moirai.error.phone_required'));
-        }
     } else {
         $keyValue = $sanitized[$keyField];
         if ($sanitized['model'] === '') {
@@ -2088,6 +2107,9 @@ function moirai_device_display_name(?array $device): string
     }
 
     $name = trim((string) ($device['naam'] ?? $device['model'] ?? ''));
+    if ($name === '') {
+        $name = trim((string) ($device['code'] ?? ''));
+    }
 
     return $name !== '' ? $name : 'apparaat';
 }

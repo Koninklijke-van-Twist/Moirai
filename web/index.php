@@ -1169,10 +1169,6 @@ $moiraiJsKeys = [
     }
 
     function deviceTitle(device) {
-        if (state.tab === 'simcard') {
-            var phone = String(device.telefoonnummer || device.naam || '').trim();
-            return phone || '—';
-        }
         return device.naam || device.model || t('moirai.unnamed');
     }
 
@@ -1206,7 +1202,7 @@ $moiraiJsKeys = [
 
     function missingDeviceFields(device, type) {
         return fieldDefinitions(type).filter(function (field) {
-            if (field.readonly || field.viewAsPhrase || field.allowBlank) {
+            if (field.readonly || field.viewAsPhrase) {
                 return false;
             }
             return String(device[field.name] ?? '').trim() === '';
@@ -1354,7 +1350,7 @@ $moiraiJsKeys = [
 
         if (type === 'simcard') {
             return [
-                { name: 'telefoonnummer', labelKey: 'moirai.field.phone_number', inputType: 'tel', allowBlank: true },
+                { name: 'telefoonnummer', labelKey: 'moirai.field.phone_number', required: true, inputType: 'tel' },
                 { name: 'code', labelKey: 'moirai.field.sim_code', required: true, key: true },
                 conditionField
             ];

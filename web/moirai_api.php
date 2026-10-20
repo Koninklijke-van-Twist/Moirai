@@ -282,7 +282,7 @@ function moirai_api_help(): array
         'statuses' => ['all', 'assigned', 'reserve', 'unavailable'],
         'conditions' => MOIRAI_CONDITION_OPTIONS,
         'practice' => [
-            'simcard' => 'Id = code. code is required and unique. telefoonnummer is optional (blank SIM); when set it is unique, compared normalized (spaces/dashes ignored, 06… = +316… = 00316…). Empty numbers are not unique. Fill telefoonnummer later via update. No labels: label_pos/print_label return 400 print_not_supported.',
+            'simcard' => 'Id = code. code and telefoonnummer are unique (telefoonnummer compared normalized: spaces/dashes ignored, 06… = +316… = 00316…). No labels: label_pos/print_label return 400 print_not_supported.',
             'laptop_create' => 'API-required: model, serienummer. Still fill ram, opslag, cpu, os, os_versie, toetsenbord, aanschafdatum, fysieke_staat on create.',
             'lenovo_model' => 'Marketing name only, no MTM/CTO suffix: ThinkBook 14 2-in-1 G6 IPL — not ThinkBook 14 2-in-1 G6 IPL (22ARCTO1WW).',
         ],

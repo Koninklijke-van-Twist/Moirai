@@ -135,16 +135,7 @@ moirai_init_schema($pdo);
 $indexes = array_column($pdo->query("PRAGMA index_list(simcards)")->fetchAll(), 'unique', 'name');
 expect(($indexes['simcards_code_norm_unique'] ?? 0) == 1, 'unique index on code_norm');
 expect(($indexes['simcards_telefoonnummer_norm_unique'] ?? 0) == 1, 'unique index on telefoonnummer_norm');
-$phoneIndexSql = (string) $pdo->query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'simcards_telefoonnummer_norm_unique'")->fetchColumn();
-expect(stripos($phoneIndexSql, 'WHERE') !== false, 'phone unique index skips empty numbers');
 expect(true, 'migration is idempotent (ran twice without error)');
-
-// Bestaande index die ook lege nummers uniek maakte, wordt bij de volgende connectie partieel.
-$pdo->exec('DROP INDEX simcards_telefoonnummer_norm_unique');
-$pdo->exec('CREATE UNIQUE INDEX simcards_telefoonnummer_norm_unique ON simcards (telefoonnummer_norm)');
-moirai_migrate_simcards_table($pdo);
-$rebuiltSql = (string) $pdo->query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'simcards_telefoonnummer_norm_unique'")->fetchColumn();
-expect(stripos($rebuiltSql, 'WHERE') !== false, 'legacy full unique phone index is rebuilt as partial');
 
 // --- Aanmaken / uniciteit ----------------------------------------------------
 
@@ -171,13 +162,8 @@ $sim2 = moirai_save_device('simcard', ['code' => 'abc-1', 'telefoonnummer' => '0
 $dupCodeCase = invalid_message(static fn() => moirai_save_device('simcard', ['code' => 'ABC1', 'telefoonnummer' => '0611111111'], $users));
 expect($dupCodeCase === 'Er bestaat al een SIM-kaart met code abc-1.', 'duplicate code is case-insensitive');
 expect(invalid_message(static fn() => moirai_save_device('simcard', ['code' => '', 'telefoonnummer' => '0611111111'], $users)) === 'SIM-code is verplicht.', 'code required');
-$blankEarly = moirai_save_device('simcard', ['code' => 'X', 'telefoonnummer' => ''], $users);
-expect($blankEarly['telefoonnummer'] === '' && $blankEarly['telefoonnummer_norm'] === '' && $blankEarly['naam'] === '', 'blank sim allowed on create');
-moirai_delete_device('simcard', 'X');
+expect(invalid_message(static fn() => moirai_save_device('simcard', ['code' => 'X', 'telefoonnummer' => ''], $users)) === 'Telefoonnummer is verplicht.', 'phone required');
 expect(invalid_message(static fn() => moirai_save_device('simcard', ['code' => 'X', 'telefoonnummer' => '12'], $users)) === LOC('moirai.error.phone_invalid'), 'invalid phone rejected');
-$blankSpace = moirai_save_device('simcard', ['code' => 'X', 'telefoonnummer' => '   '], $users);
-expect($blankSpace['telefoonnummer'] === '' && $blankSpace['telefoonnummer_norm'] === '', 'whitespace-only phone counts as empty');
-moirai_delete_device('simcard', 'X');
 expect(count(moirai_list_devices('simcard')) === 2, 'only two sims stored');
 
 // Database dwingt het ook af, los van de PHP-check.
@@ -195,19 +181,7 @@ try {
     $dbBlocked = str_contains($error->getMessage(), 'UNIQUE constraint failed');
 }
 expect($dbBlocked, 'database unique index blocks duplicate code_norm');
-$emptyInserted = 0;
-try {
-    $insertEmpty = $pdo->prepare("INSERT INTO simcards (code, code_norm, telefoonnummer, telefoonnummer_norm) VALUES (:code, :norm, '', '')");
-    $insertEmpty->execute(['code' => 'EMPTY1', 'norm' => 'EMPTY1']);
-    $insertEmpty->execute(['code' => 'EMPTY2', 'norm' => 'EMPTY2']);
-    $emptyInserted = 2;
-} catch (PDOException $error) {
-    $emptyInserted = 0;
-}
-expect($emptyInserted === 2, 'database allows multiple empty telefoonnummer_norm');
-$pdo->exec("DELETE FROM simcards WHERE code IN ('EMPTY1', 'EMPTY2')");
 expect(moirai_unique_violation_message('simcards', ['code' => 'ZZZ', 'telefoonnummer_norm' => '+31687654321']) === 'Telefoonnummer 06 87654321 is al gekoppeld aan SIM-kaart abc-1.', 'DB fallback message names the conflicting sim');
-expect(moirai_simcard_duplicate_error($pdo, 'NIEUW', '', '') === null, 'empty phone is not a duplicate of another empty phone');
 
 // --- Bewerken ----------------------------------------------------------------
 
@@ -310,80 +284,6 @@ $apiList = dispatch('list', [], ['type' => 'simcard', 'q' => '0611223344']);
 expect(($apiList['body']['count'] ?? 0) === 1, 'API list search by national number');
 $apiDelete = dispatch('delete', ['type' => 'simcard', 'id' => 'API-SIM-1']);
 expect(($apiDelete['body']['ok'] ?? false) === true && moirai_get_device('simcard', 'API-SIM-1') === null, 'API delete simcard');
-
-$apiBlank = dispatch('create', ['type' => 'simcard', 'code' => 'API-BLANK']);
-expect($apiBlank['status'] === 201 && ($apiBlank['body']['device']['telefoonnummer'] ?? 'x') === '' && ($apiBlank['body']['device']['telefoonnummer_norm'] ?? 'x') === '', 'API create blank sim without phone');
-$apiBlank2 = dispatch('create', ['type' => 'simcard', 'code' => 'API-BLANK-2', 'telefoonnummer' => '']);
-expect($apiBlank2['status'] === 201 && ($apiBlank2['body']['error_code'] ?? '') === '', 'API create second blank sim');
-$apiBadPhone = dispatch('create', ['type' => 'simcard', 'code' => 'API-BAD', 'telefoonnummer' => '12']);
-expect($apiBadPhone['status'] === 400 && ($apiBadPhone['body']['error_code'] ?? '') === 'invalid_input' && ($apiBadPhone['body']['error'] ?? '') === LOC('moirai.error.phone_invalid'), 'API rejects invalid phone on blank-capable sim');
-$apiFill = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'telefoonnummer' => '06 55 66 77 88']);
-expect($apiFill['status'] === 200 && ($apiFill['body']['device']['telefoonnummer_norm'] ?? '') === '+31655667788', 'API update fills phone later');
-$apiKeep = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'fysieke_staat' => 'netjes']);
-expect(($apiKeep['body']['device']['telefoonnummer'] ?? '') === '06 55 66 77 88', 'API partial update keeps a later-filled phone');
-$apiClear = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'telefoonnummer' => '']);
-expect($apiClear['status'] === 200 && ($apiClear['body']['device']['telefoonnummer'] ?? 'x') === '', 'API update can clear the phone again');
-$apiReuse = dispatch('create', ['type' => 'simcard', 'code' => 'API-REUSE', 'telefoonnummer' => '0655667788']);
-expect($apiReuse['status'] === 201, 'cleared number can be reused on another sim');
-$apiDupBlank = dispatch('create', ['type' => 'simcard', 'code' => 'API-BLANK', 'telefoonnummer' => '']);
-expect($apiDupBlank['status'] === 400 && str_contains((string) ($apiDupBlank['body']['error'] ?? ''), 'Er bestaat al een SIM-kaart met code'), 'blank sim still rejects a duplicate code');
-
-// --- Blanco kaarten: zoeken, sortering, uitgifte, budgetkoppeling ------------
-
-$blankA = moirai_save_device('simcard', ['code' => 'BLANK-B', 'telefoonnummer' => ''], $users);
-$blankB = moirai_save_device('simcard', ['code' => 'BLANK-A', 'telefoonnummer' => ''], $users);
-expect($blankA['code'] === 'BLANK-B' && $blankB['telefoonnummer_norm'] === '', 'two blank sims stored');
-$codes = array_column(moirai_list_devices('simcard'), 'code');
-$pos = static fn(string $code): int|false => array_search($code, $codes, true);
-expect($pos('BLANK-A') !== false && $pos('BLANK-B') !== false && $pos('BLANK-A') < $pos('BLANK-B'), 'blank sims sort by code');
-expect($pos('BLANK-B') < $pos('SIM-0002'), 'blank sims sort before numbered sims');
-$listed = moirai_list_devices('simcard');
-$findBlank = static fn(string $q): array => array_values(array_map(
-    static fn(array $d): string => $d['code'],
-    array_filter($listed, static fn(array $d): bool => moirai_device_matches_filter($d, $q, 'all', []))
-));
-expect($findBlank('blank-a') === ['BLANK-A'], 'search finds a blank sim by code');
-expect($findBlank('0612345678') === ['8931 0400 1234 5678 901'], 'phone search does not match blank sims');
-expect($findBlank('') !== [] && in_array('BLANK-A', $findBlank(''), true), 'empty search still lists blank sims');
-$filledLater = moirai_save_device('simcard', ['original_key' => 'BLANK-A', 'code' => 'BLANK-A', 'telefoonnummer' => '06-11111111'], $users);
-expect($filledLater['telefoonnummer_norm'] === '+31611111111', 'UI save can fill a number later');
-expect(invalid_message(static fn() => moirai_save_device('simcard', ['code' => 'BLANK-C', 'telefoonnummer' => '0611111111'], $users)) !== null, 'filled number stays unique');
-$assignedBlank = moirai_assign_device('simcard', 'BLANK-B', ['email' => 'user@kvt.nl'], $users);
-expect(moirai_device_status($assignedBlank) === 'assigned' && ($assignedBlank['telefoonnummer'] ?? 'x') === '', 'assign works without a phone number');
-expect(moirai_device_display_name($assignedBlank) === 'BLANK-B', 'blank sim display name falls back to code');
-$_GET = ['t' => 's', 'd' => 'BLANK-B'];
-$_SERVER['REQUEST_URI'] = '/moirai/index.php?t=s&d=BLANK-B';
-$blankLink = moirai_parse_deep_link_from_request();
-expect(($blankLink['type'] ?? '') === 'simcard' && ($blankLink['deviceId'] ?? '') === 'BLANK-B', 'deep link resolves a blank sim by code');
-
-$_SESSION['user'] = ['email' => 'ict@kvt.nl', 'name' => 'ICT Beheer', 'admin' => true];
-moirai_budget_add_person('user@kvt.nl', 'Test User', '2024-01-01');
-$purchase = moirai_budget_add_purchase('user@kvt.nl', ['datum' => '2026-01-15', 'prijs' => '100', 'telefoon' => '']);
-moirai_save_device('phone', ['model' => 'Pixel', 'imei' => '350000000000099', 'aanschafdatum' => '2025-01-01'], $users);
-moirai_assign_device('phone', '350000000000099', ['email' => 'user@kvt.nl'], $users);
-$linked = moirai_budget_link_phone('350000000000099', (int) $purchase['id']);
-expect(($linked['linked']['phone_imei'] ?? '') === '350000000000099', 'budget link still works while a blank sim exists');
-moirai_budget_phone_key_changed('', '350000000000099');
-expect(moirai_budget_phone_options('350000000000099')['linked']['phone_imei'] === '350000000000099', 'empty phone-key change does not drop a budget link');
-moirai_save_device('phone', [
-    'original_key' => '350000000000099',
-    'model' => 'Pixel',
-    'imei' => '350000000000100',
-    'aanschafdatum' => '2025-01-01',
-], $users);
-expect(moirai_budget_phone_options('350000000000100')['linked']['phone_imei'] === '350000000000100', 'IMEI rename keeps the budget link next to blank sims');
-
-$ui = (string) file_get_contents(__DIR__ . '/../web/index.php');
-expect(preg_match("/name: 'telefoonnummer'[^\\n]*required:\\s*true/", $ui) !== 1, 'sim form does not require telefoonnummer');
-expect(str_contains($ui, "phone || '—'"), 'empty sim number is shown as an em dash');
-expect(str_contains((string) ($help['practice']['simcard'] ?? ''), 'optional'), 'API help describes telefoonnummer as optional');
-
-foreach (['API-BLANK', 'API-BLANK-2', 'API-REUSE', 'BLANK-A', 'BLANK-B'] as $code) {
-    if (moirai_get_device('simcard', $code) !== null) {
-        moirai_delete_device('simcard', $code);
-    }
-}
-moirai_delete_device('phone', '350000000000100');
 
 // --- Nightly / aging raakt SIM's niet ----------------------------------------
 

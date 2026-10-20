@@ -542,6 +542,43 @@ function moirai_simcard_duplicate_error(PDO $pdo, string $code, string $phoneNor
     return null;
 }
 
+/**
+ * Leeg nummer als NULL, maar alleen als de kolom dat al toelaat.
+ * Op een oude NOT NULL-kolom is NULL geen unique-schending en werd dat een HTTP 500.
+ */
+function moirai_simcard_store_phone_norm(PDO $pdo, string $phoneNorm): ?string
+{
+    if ($phoneNorm !== '') {
+        return $phoneNorm;
+    }
+    if (moirai_simcard_phone_norm_needs_null_migration($pdo)) {
+        throw new InvalidArgumentException(moirai_loc('moirai.error.phone_blank_unavailable'));
+    }
+
+    return null;
+}
+
+/**
+ * UNIQUE en een NOT NULL op telefoonnummer_norm worden een validatiefout.
+ * Andere databasefouten blijven een exception voor de aanroeper.
+ */
+function moirai_device_save_exception(string $typeKey, PDOException $error, array $params, string $excludeKey = ''): ?InvalidArgumentException
+{
+    $message = $error->getMessage();
+    if (str_contains($message, 'UNIQUE constraint failed')) {
+        return new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params, $excludeKey));
+    }
+    if (
+        $typeKey === 'simcards'
+        && str_contains($message, 'NOT NULL constraint failed')
+        && str_contains($message, 'telefoonnummer_norm')
+    ) {
+        return new InvalidArgumentException(moirai_loc('moirai.error.phone_blank_unavailable'));
+    }
+
+    return null;
+}
+
 function moirai_unique_violation_message(string $typeKey, array $params, string $excludeKey = ''): string
 {
     if ($typeKey === 'simcards') {
@@ -769,6 +806,9 @@ function moirai_db(): PDO
     $pdo = new PDO('sqlite:' . $path);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    // Wacht op een korte schrijflock (eenmalige SIM-migratie) in plaats van
+    // SQLITE_BUSY als ongevangen 500 op de query daarna.
+    $pdo->exec('PRAGMA busy_timeout = 5000');
     $connectedPath = $path;
     moirai_init_schema($pdo);
 
@@ -870,7 +910,8 @@ function moirai_init_schema(PDO $pdo): void
  * bestaande index op telefoonnummer_norm. Een blanco kaart bewaart daar NULL;
  * SQLite behandelt NULL als ongelijk aan andere NULL's, dus meerdere lege
  * nummers mogen. De omzetting van een oude NOT NULL-kolom gebeurt één keer.
- * Een mislukte migratie wordt gelogd en overgeslagen: de verbinding blijft werken.
+ * Mislukt dat, dan wordt dat naast de database onthouden en draait geen enkel
+ * later verzoek die DDL opnieuw. De verbinding blijft werken.
  */
 function moirai_migrate_simcards_table(PDO $pdo): void
 {
@@ -986,18 +1027,18 @@ function moirai_ensure_simcard_indexes(PDO $pdo): void
     if (!moirai_sqlite_table_exists($pdo, 'simcards')) {
         return;
     }
+    // Zolang de oude NOT NULL-kolom er nog is, geen index-DDL op het verzoekpad.
+    // De eenmalige omzetting maakt de indexen zelf aan; een mislukte omzetting
+    // laat de bestaande indexen staan.
+    if (moirai_simcard_phone_norm_needs_null_migration($pdo)) {
+        return;
+    }
     if (!moirai_sqlite_index_exists($pdo, 'simcards_code_norm_unique')) {
         moirai_sqlite_exec_guarded(
             $pdo,
             'CREATE UNIQUE INDEX simcards_code_norm_unique ON simcards (code_norm)',
             'simcards code-index'
         );
-    }
-    // Ontbrekende telefoonindex niet aanmaken zolang lege strings nog NOT NULL
-    // zijn: dubbele '' laten CREATE UNIQUE INDEX falen. Na de NULL-migratie
-    // bestaat de index, en een volgende verbinding doet geen DDL meer.
-    if (moirai_simcard_phone_norm_needs_null_migration($pdo)) {
-        return;
     }
     if (!moirai_sqlite_index_exists($pdo, 'simcards_telefoonnummer_norm_unique')) {
         moirai_sqlite_exec_guarded(
@@ -1049,33 +1090,119 @@ function moirai_recover_simcards_blanknull_rename(PDO $pdo): void
     }
 }
 
+function moirai_simcard_blank_phone_skip_path(PDO $pdo): string
+{
+    $file = moirai_sqlite_main_file($pdo);
+
+    return $file === '' ? '' : $file . '.sim-blank-phone-skip';
+}
+
+function moirai_schema_meta_get(PDO $pdo, string $key): ?string
+{
+    if (!moirai_sqlite_table_exists($pdo, 'moirai_schema_meta')) {
+        return null;
+    }
+    $stmt = $pdo->prepare('SELECT v FROM moirai_schema_meta WHERE k = :k');
+    $stmt->execute(['k' => $key]);
+    $value = $stmt->fetchColumn();
+
+    return $value === false ? null : (string) $value;
+}
+
+function moirai_schema_meta_set(PDO $pdo, string $key, string $value): void
+{
+    if (!moirai_sqlite_table_exists($pdo, 'moirai_schema_meta')) {
+        $pdo->exec('CREATE TABLE moirai_schema_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+    }
+    $stmt = $pdo->prepare('INSERT OR REPLACE INTO moirai_schema_meta (k, v) VALUES (:k, :v)');
+    $stmt->execute(['k' => $key, 'v' => $value]);
+}
+
 /**
- * Eén keer per databasebestand. Faalt de omzetting, dan blijft de oude tabel
- * staan en gaan vervolgaanroepen in dit proces niet opnieuw DDL draaien.
+ * True nadat een eerdere poging de NOT NULL-kolom niet kon omzetten.
+ * Geldt over PHP-processen heen: een static vlag verdwijnt bij elke FPM-request.
+ */
+function moirai_simcard_blank_phone_skipped(PDO $pdo): bool
+{
+    $path = moirai_simcard_blank_phone_skip_path($pdo);
+    if ($path !== '' && is_file($path)) {
+        return true;
+    }
+
+    return moirai_schema_meta_get($pdo, 'simcards_blank_phone') === 'failed';
+}
+
+function moirai_simcard_blank_phone_mark_skipped(PDO $pdo): void
+{
+    $path = moirai_simcard_blank_phone_skip_path($pdo);
+    if ($path !== '') {
+        @file_put_contents($path, "failed\n", LOCK_EX);
+    }
+    try {
+        moirai_schema_meta_set($pdo, 'simcards_blank_phone', 'failed');
+    } catch (Throwable $error) {
+        moirai_log_once('simcards schema', $error->getMessage());
+    }
+}
+
+/**
+ * @return resource|false|null resource bij lock, false als een ander verzoek
+ *   de omzetting al doet, null als het lockbestand niet open kan
+ */
+function moirai_simcard_blank_phone_lock(PDO $pdo)
+{
+    $file = moirai_sqlite_main_file($pdo);
+    $path = ($file !== '' ? $file : sys_get_temp_dir() . '/moirai-pdo-' . spl_object_id($pdo)) . '.sim-blank-phone.lock';
+    $handle = fopen($path, 'c');
+    if ($handle === false) {
+        return null;
+    }
+    if (!flock($handle, LOCK_EX | LOCK_NB)) {
+        fclose($handle);
+
+        return false;
+    }
+
+    return $handle;
+}
+
+/** @param resource|null $handle */
+function moirai_simcard_blank_phone_unlock($handle): void
+{
+    if (is_resource($handle)) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+/**
+ * Eén keer per databasebestand, ook over requests heen. Faalt de omzetting,
+ * dan blijft de oude tabel staan en doet een volgend verzoek geen DROP of
+ * CREATE INDEX meer.
  */
 function moirai_migrate_simcard_blank_phones_once(PDO $pdo): void
 {
-    static $failed = [];
     if (!moirai_simcard_phone_norm_needs_null_migration($pdo)) {
         return;
     }
-    $file = moirai_sqlite_main_file($pdo);
-    $key = $file !== '' ? $file : 'pdo:' . spl_object_id($pdo);
-    if (isset($failed[$key])) {
+    if (moirai_simcard_blank_phone_skipped($pdo)) {
+        return;
+    }
+    $lock = moirai_simcard_blank_phone_lock($pdo);
+    if ($lock === false) {
         return;
     }
     try {
         moirai_rebuild_simcards_nullable_phone($pdo);
     } catch (Throwable $error) {
-        $locked = preg_match('/\b(locked|busy)\b/i', $error->getMessage()) === 1;
-        if (!$locked) {
-            $failed[$key] = true;
-        }
+        moirai_simcard_blank_phone_mark_skipped($pdo);
         moirai_recover_simcards_blanknull_rename($pdo);
         moirai_log_once(
             'SIM-migratie voor lege telefoonnummers is overgeslagen, de bestaande tabel blijft in gebruik',
             $error->getMessage()
         );
+    } finally {
+        moirai_simcard_blank_phone_unlock($lock);
     }
 }
 
@@ -1977,7 +2104,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'code' => $keyValue,
             'code_norm' => moirai_normalize_simcard_code($keyValue),
             'telefoonnummer' => $sanitized['telefoonnummer'],
-            'telefoonnummer_norm' => $sanitized['telefoonnummer_norm'] === '' ? null : $sanitized['telefoonnummer_norm'],
+            'telefoonnummer_norm' => moirai_simcard_store_phone_norm($pdo, $sanitized['telefoonnummer_norm']),
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
         $duplicate = moirai_simcard_duplicate_error(
@@ -2035,8 +2162,9 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             $stmt = $pdo->prepare($insertSql);
             $stmt->execute($params);
         } catch (PDOException $error) {
-            if (str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                throw new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params));
+            $mapped = moirai_device_save_exception($typeKey, $error, $params);
+            if ($mapped !== null) {
+                throw $mapped;
             }
             throw $error;
         }
@@ -2060,8 +2188,11 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
                 if ($error instanceof InvalidArgumentException) {
                     throw $error;
                 }
-                if ($error instanceof PDOException && str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                    throw new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params, $originalKey));
+                if ($error instanceof PDOException) {
+                    $mapped = moirai_device_save_exception($typeKey, $error, $params, $originalKey);
+                    if ($mapped !== null) {
+                        throw $mapped;
+                    }
                 }
                 throw $error;
             }
@@ -2079,8 +2210,9 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
                 $stmt = $pdo->prepare($updateSql);
                 $stmt->execute($updateParams);
             } catch (PDOException $error) {
-                if (str_contains($error->getMessage(), 'UNIQUE constraint failed')) {
-                    throw new InvalidArgumentException(moirai_unique_violation_message($typeKey, $params, $originalKey));
+                $mapped = moirai_device_save_exception($typeKey, $error, $params, $originalKey);
+                if ($mapped !== null) {
+                    throw $mapped;
                 }
                 throw $error;
             }

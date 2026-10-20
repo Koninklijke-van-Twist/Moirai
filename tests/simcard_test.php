@@ -228,10 +228,62 @@ $brokenSql = (string) $broken->query("SELECT sql FROM sqlite_master WHERE type =
 expect($brokenSql !== '' && !preg_match('/\bWHERE\b/i', $brokenSql), 'old phone unique index is still the original one');
 expect(moirai_simcard_phone_norm_needs_null_migration($broken), 'failed migration leaves the NOT NULL column in place');
 expect(!moirai_sqlite_table_exists($broken, 'simcards__blanknull'), 'failed migration does not leave the new table behind');
+expect(moirai_schema_meta_get($broken, 'simcards_blank_phone') === 'failed', 'failed migration is stored as schema version');
+expect(is_file($brokenFile . '.sim-blank-phone-skip'), 'failed migration is remembered outside this PHP process');
+$notNullMapped = moirai_device_save_exception(
+    'simcards',
+    new PDOException('SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: simcards.telefoonnummer_norm'),
+    ['code' => 'NIEUW-LEEG', 'telefoonnummer_norm' => null]
+);
+expect($notNullMapped instanceof InvalidArgumentException, 'NOT NULL on a blank phone maps to a validation error');
+$notNullApi = $notNullMapped instanceof InvalidArgumentException ? moirai_api_from_invalid_argument($notNullMapped) : ['status' => 0, 'body' => []];
+expect(($notNullApi['status'] ?? 0) === 400 && ($notNullApi['body']['error_code'] ?? '') === 'invalid_input', 'blank phone on the old column is HTTP 400 invalid_input');
+expect(moirai_device_save_exception('laptops', new PDOException('NOT NULL constraint failed: laptops.naam'), []) === null, 'other NOT NULL errors stay database errors');
+$schemaBeforeRetry = (string) $broken->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'simcards'")->fetchColumn()
+    . "\n" . $brokenSql;
+$broken = null;
+$retryScript = sys_get_temp_dir() . '/moirai_sim_retry_' . bin2hex(random_bytes(4)) . '.php';
+file_put_contents($retryScript, '<?php' . "\n"
+    . 'declare(strict_types=1);' . "\n"
+    . '$GLOBALS[\'moirai_db_file\'] = ' . var_export($brokenFile, true) . ";\n"
+    . 'require ' . var_export(__DIR__ . '/../web/localization.php', true) . ";\n"
+    . 'require ' . var_export(__DIR__ . '/../web/moirai_api.php', true) . ";\n"
+    . '$pdo = moirai_db();' . "\n"
+    . 'moirai_migrate_simcards_table($pdo);' . "\n"
+    . 'try {' . "\n"
+    . '    moirai_save_device(\'simcard\', [\'code\' => \'NIEUW-LEEG\', \'telefoonnummer\' => \'\'], []);' . "\n"
+    . '    fwrite(STDOUT, "saved\n");' . "\n"
+    . '} catch (InvalidArgumentException $e) {' . "\n"
+    . '    $api = moirai_api_from_invalid_argument($e);' . "\n"
+    . '    fwrite(STDOUT, \'invalid \' . $api[\'status\'] . \' \' . ($api[\'body\'][\'error_code\'] ?? \'\') . "\n" . $e->getMessage() . "\n");' . "\n"
+    . '} catch (Throwable $e) {' . "\n"
+    . '    fwrite(STDOUT, \'throw \' . get_class($e) . "\n" . $e->getMessage() . "\n");' . "\n"
+    . '}' . "\n");
+$retryPipes = [];
+$retryProc = proc_open([PHP_BINARY, $retryScript], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $retryPipes, dirname(__DIR__));
+$retryOut = is_resource($retryProc) ? stream_get_contents($retryPipes[1]) : '';
+$retryErr = is_resource($retryProc) ? stream_get_contents($retryPipes[2]) : '';
+if (is_resource($retryProc)) {
+    fclose($retryPipes[1]);
+    fclose($retryPipes[2]);
+    proc_close($retryProc);
+}
+expect(str_starts_with($retryOut, 'invalid 400 invalid_input'), 'a later process stores a blank SIM as 400, not 500: ' . trim($retryOut . ' ' . $retryErr));
+expect(str_contains($retryOut, 'Een leeg telefoonnummer kan nog niet worden opgeslagen.'), 'blank save explains that an empty number cannot be stored yet');
+expect(!str_contains($retryErr, 'UNIQUE constraint failed') && !str_contains($retryErr, 'simcards__blanknull'), 'a later process does not retry the failed rebuild');
+$broken = new PDO('sqlite:' . $brokenFile);
+$broken->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$schemaAfterRetry = (string) $broken->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'simcards'")->fetchColumn()
+    . "\n" . (string) $broken->query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'simcards_telefoonnummer_norm_unique'")->fetchColumn();
+expect($schemaAfterRetry === $schemaBeforeRetry, 'a later process leaves the old simcards schema untouched');
+expect((int) $broken->query('SELECT COUNT(*) FROM simcards')->fetchColumn() === 2, 'a later process does not insert or drop the existing rows');
 $broken = null;
 $legacyDb = null;
 @unlink($legacyFile);
 @unlink($brokenFile);
+@unlink($brokenFile . '.sim-blank-phone-skip');
+@unlink($brokenFile . '.sim-blank-phone.lock');
+@unlink($retryScript);
 
 // Afgebroken wissel: alleen de tijdelijke tabel bestaat nog. Niet een lege simcards aanmaken.
 $orphanFile = sys_get_temp_dir() . '/moirai_sim_orphan_' . bin2hex(random_bytes(4)) . '.sqlite';

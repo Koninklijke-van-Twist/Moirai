@@ -6,7 +6,7 @@ ICT-apparaatbeheer op sleutels.kvt.nl: laptops, telefoons, accessoires en SIM-ka
 
 - `web/index.php` — hoofdpagina (apparatenlijst, toewijzing, labels)
 - `web/moirai_data.php` — SQLite-data-laag (apparaten, accessoires, SIM-kaarten, filters)
-  - SIM-kaarten (`simcards`): code en telefoonnummer uniek (genormaliseerd, unieke DB-indexen); geen labels. Tabel en indexen worden idempotent aangemaakt bij de eerste DB-connectie.
+  - SIM-kaarten (`simcards`): code uniek; telefoonnummer optioneel. Een leeg nummer wordt als NULL opgeslagen, zodat de bestaande unieke index meerdere blanco kaarten toelaat. Een ingevuld nummer blijft uniek (genormaliseerd). Geen labels. Een oude NOT NULL-kolom wordt één keer omgezet; mislukt dat, dan blijft de app de oude tabel gebruiken.
 - `web/odata.php` — OData-client, lokale filecache-widget, optionele Mímir-proxy
 - `web/auth_helper.php` — company-discovery / environment-helpers (BC of Mímir)
 - `web/moirai_budget.php` — telefoonbudget (rekenregels, aankopen, import); UI in `web/telefoonbudget_ui.php` + `web/js/telefoonbudget.js`

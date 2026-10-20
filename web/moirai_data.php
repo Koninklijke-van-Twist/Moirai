@@ -866,29 +866,305 @@ function moirai_init_schema(PDO $pdo): void
 }
 
 /**
- * SIM-kaarten: code en telefoonnummer zijn uniek. De database dwingt dat af via
- * unieke indexen op de genormaliseerde kolommen (code_norm, telefoonnummer_norm).
- * Idempotent: draait bij elke DB-connectie, net als de andere schema-stappen.
+ * SIM-kaarten: code is uniek. Een ingevuld telefoonnummer is uniek via de
+ * bestaande index op telefoonnummer_norm. Een blanco kaart bewaart daar NULL;
+ * SQLite behandelt NULL als ongelijk aan andere NULL's, dus meerdere lege
+ * nummers mogen. De omzetting van een oude NOT NULL-kolom gebeurt één keer.
+ * Een mislukte migratie wordt gelogd en overgeslagen: de verbinding blijft werken.
  */
 function moirai_migrate_simcards_table(PDO $pdo): void
 {
-    $pdo->exec("
-        CREATE TABLE IF NOT EXISTS simcards (
-            code                TEXT PRIMARY KEY,
-            code_norm           TEXT NOT NULL,
-            telefoonnummer      TEXT NOT NULL DEFAULT '',
-            telefoonnummer_norm TEXT NOT NULL,
-            fysieke_staat       TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "',
-            uitgegeven_user_id  TEXT,
-            uitgegeven_naam     TEXT,
-            uitgegeven_email    TEXT,
-            uitgegeven_sinds    TEXT,
-            historie_json       TEXT NOT NULL DEFAULT '[]',
-            qr_geldig           INTEGER NOT NULL DEFAULT 0
-        )
-    ");
-    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_code_norm_unique ON simcards (code_norm)');
-    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_telefoonnummer_norm_unique ON simcards (telefoonnummer_norm)');
+    try {
+        // Herstel eerst. CREATE TABLE IF NOT EXISTS zou anders een lege simcards
+        // aanmaken terwijl de gegevens nog in simcards__blanknull staan.
+        moirai_recover_simcards_blanknull_rename($pdo);
+        if (!moirai_sqlite_table_exists($pdo, 'simcards')) {
+            if (moirai_sqlite_table_exists($pdo, 'simcards__blanknull')) {
+                moirai_log_once('simcards schema', 'simcards ontbreekt, gegevens staan nog in simcards__blanknull');
+            } else {
+                $pdo->exec("
+                    CREATE TABLE simcards (
+                        code                TEXT PRIMARY KEY,
+                        code_norm           TEXT NOT NULL,
+                        telefoonnummer      TEXT NOT NULL DEFAULT '',
+                        telefoonnummer_norm TEXT,
+                        fysieke_staat       TEXT NOT NULL DEFAULT '" . MOIRAI_CONDITION_DEFAULT . "',
+                        uitgegeven_user_id  TEXT,
+                        uitgegeven_naam     TEXT,
+                        uitgegeven_email    TEXT,
+                        uitgegeven_sinds    TEXT,
+                        historie_json       TEXT NOT NULL DEFAULT '[]',
+                        qr_geldig           INTEGER NOT NULL DEFAULT 0
+                    )
+                ");
+            }
+        }
+        moirai_migrate_simcard_blank_phones_once($pdo);
+        moirai_ensure_simcard_indexes($pdo);
+    } catch (Throwable $error) {
+        moirai_log_once('simcards schema', $error->getMessage());
+    }
+}
+
+function moirai_sqlite_main_file(PDO $pdo): string
+{
+    foreach ($pdo->query('PRAGMA database_list') as $db) {
+        if (($db['name'] ?? '') === 'main') {
+            return (string) ($db['file'] ?? '');
+        }
+    }
+
+    return '';
+}
+
+function moirai_sqlite_table_exists(PDO $pdo, string $name): bool
+{
+    $stmt = $pdo->prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = :name");
+    $stmt->execute(['name' => $name]);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+/**
+ * True zolang een bestaande simcards-tabel lege nummers nog niet als NULL kan
+ * bewaren. Eerst sqlite_master (schematekst), daarna PRAGMA table_info.
+ */
+function moirai_simcard_phone_norm_needs_null_migration(PDO $pdo): bool
+{
+    $sql = $pdo->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'simcards'")->fetchColumn();
+    if (!is_string($sql) || $sql === '') {
+        return false;
+    }
+    if (!preg_match('/telefoonnummer_norm["\s]*TEXT\s+NOT NULL/i', $sql)) {
+        return false;
+    }
+    foreach ($pdo->query('PRAGMA table_info(simcards)') as $info) {
+        if (($info['name'] ?? '') === 'telefoonnummer_norm') {
+            return (int) ($info['notnull'] ?? 0) === 1;
+        }
+    }
+
+    return false;
+}
+
+function moirai_log_once(string $context, string $message): void
+{
+    static $logged = [];
+    $key = $context . "\n" . $message;
+    if (isset($logged[$key])) {
+        return;
+    }
+    $logged[$key] = true;
+    error_log('Moirai ' . $context . ': ' . $message);
+}
+
+function moirai_sqlite_exec_guarded(PDO $pdo, string $sql, string $context): void
+{
+    try {
+        $pdo->exec($sql);
+    } catch (Throwable $error) {
+        moirai_log_once($context, $error->getMessage());
+    }
+}
+
+function moirai_sqlite_index_exists(PDO $pdo, string $name): bool
+{
+    $stmt = $pdo->prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = :name");
+    $stmt->execute(['name' => $name]);
+
+    return (bool) $stmt->fetchColumn();
+}
+
+/**
+ * Indexen alleen aanmaken als ze ontbreken. Nooit droppen.
+ * De telefoonindex wordt niet op een oude NOT NULL-kolom gezet: dubbele lege
+ * strings zouden CREATE UNIQUE INDEX laten falen. Die index komt na de
+ * NULL-migratie, op waarden die leeg als NULL zijn opgeslagen.
+ */
+function moirai_ensure_simcard_indexes(PDO $pdo): void
+{
+    if (!moirai_sqlite_table_exists($pdo, 'simcards')) {
+        return;
+    }
+    if (!moirai_sqlite_index_exists($pdo, 'simcards_code_norm_unique')) {
+        moirai_sqlite_exec_guarded(
+            $pdo,
+            'CREATE UNIQUE INDEX simcards_code_norm_unique ON simcards (code_norm)',
+            'simcards code-index'
+        );
+    }
+    // Ontbrekende telefoonindex niet aanmaken zolang lege strings nog NOT NULL
+    // zijn: dubbele '' laten CREATE UNIQUE INDEX falen. Na de NULL-migratie
+    // bestaat de index, en een volgende verbinding doet geen DDL meer.
+    if (moirai_simcard_phone_norm_needs_null_migration($pdo)) {
+        return;
+    }
+    if (!moirai_sqlite_index_exists($pdo, 'simcards_telefoonnummer_norm_unique')) {
+        moirai_sqlite_exec_guarded(
+            $pdo,
+            'CREATE UNIQUE INDEX simcards_telefoonnummer_norm_unique ON simcards (telefoonnummer_norm)',
+            'simcards telefoon-index'
+        );
+    }
+}
+
+/**
+ * Maakt een afgebroken tabelwissel af zonder de vollere tabel weg te gooien.
+ * simcards weg en simcards__blanknull aanwezig: hernoem terug.
+ * Lege simcards naast een gevulde tijdelijke tabel: de lege tabel is een
+ * herstart na DROP, de tijdelijke tabel heeft de gegevens.
+ */
+function moirai_recover_simcards_blanknull_rename(PDO $pdo): void
+{
+    try {
+        $hasSim = moirai_sqlite_table_exists($pdo, 'simcards');
+        $hasTemp = moirai_sqlite_table_exists($pdo, 'simcards__blanknull');
+        if (!$hasTemp) {
+            return;
+        }
+        if (!$hasSim) {
+            $pdo->exec('ALTER TABLE simcards__blanknull RENAME TO simcards');
+
+            return;
+        }
+        $simCount = (int) $pdo->query('SELECT COUNT(*) FROM simcards')->fetchColumn();
+        $tempCount = (int) $pdo->query('SELECT COUNT(*) FROM simcards__blanknull')->fetchColumn();
+        if ($simCount === 0 && $tempCount > 0) {
+            $pdo->exec('DROP TABLE simcards');
+            $pdo->exec('ALTER TABLE simcards__blanknull RENAME TO simcards');
+
+            return;
+        }
+        if ($tempCount > $simCount) {
+            moirai_log_once(
+                'simcards herstel',
+                'tijdelijke tabel heeft meer rijen dan simcards; beide blijven staan'
+            );
+
+            return;
+        }
+        $pdo->exec('DROP TABLE simcards__blanknull');
+    } catch (Throwable $error) {
+        moirai_log_once('simcards herstel', $error->getMessage());
+    }
+}
+
+/**
+ * Eén keer per databasebestand. Faalt de omzetting, dan blijft de oude tabel
+ * staan en gaan vervolgaanroepen in dit proces niet opnieuw DDL draaien.
+ */
+function moirai_migrate_simcard_blank_phones_once(PDO $pdo): void
+{
+    static $failed = [];
+    if (!moirai_simcard_phone_norm_needs_null_migration($pdo)) {
+        return;
+    }
+    $file = moirai_sqlite_main_file($pdo);
+    $key = $file !== '' ? $file : 'pdo:' . spl_object_id($pdo);
+    if (isset($failed[$key])) {
+        return;
+    }
+    try {
+        moirai_rebuild_simcards_nullable_phone($pdo);
+    } catch (Throwable $error) {
+        $locked = preg_match('/\b(locked|busy)\b/i', $error->getMessage()) === 1;
+        if (!$locked) {
+            $failed[$key] = true;
+        }
+        moirai_recover_simcards_blanknull_rename($pdo);
+        moirai_log_once(
+            'SIM-migratie voor lege telefoonnummers is overgeslagen, de bestaande tabel blijft in gebruik',
+            $error->getMessage()
+        );
+    }
+}
+
+function moirai_sqlite_ident(string $name): string
+{
+    return '"' . str_replace('"', '""', $name) . '"';
+}
+
+/**
+ * Kopieert simcards naar een tabel waarin telefoonnummer_norm NULL mag.
+ * Lege strings worden NULL. De nieuwe unieke indexen bestaan vóór de oude
+ * tabel (en dus de oude index) wordt weggegooid. Alles zit in één transactie.
+ *
+ * @throws Throwable
+ */
+function moirai_rebuild_simcards_nullable_phone(PDO $pdo): void
+{
+    $columns = $pdo->query('PRAGMA table_info(simcards)')->fetchAll();
+    if ($columns === []) {
+        return;
+    }
+
+    $defs = [];
+    $names = [];
+    $select = [];
+    foreach ($columns as $info) {
+        $name = (string) ($info['name'] ?? '');
+        if ($name === '') {
+            continue;
+        }
+        $ident = moirai_sqlite_ident($name);
+        $type = trim((string) ($info['type'] ?? ''));
+        if ($type === '') {
+            $type = 'TEXT';
+        }
+        $pk = (int) ($info['pk'] ?? 0) > 0;
+        $nullablePhone = $name === 'telefoonnummer_norm';
+        $notNull = !$nullablePhone && !$pk && (int) ($info['notnull'] ?? 0) === 1;
+        $def = $ident . ' ' . $type;
+        if ($pk) {
+            $def .= ' PRIMARY KEY';
+        } elseif ($notNull) {
+            $def .= ' NOT NULL';
+        }
+        if (!$nullablePhone && $info['dflt_value'] !== null) {
+            $def .= ' DEFAULT ' . $info['dflt_value'];
+        }
+        $defs[] = $def;
+        $names[] = $ident;
+        $select[] = $nullablePhone ? 'NULLIF(' . $ident . ", '')" : $ident;
+    }
+
+    moirai_recover_simcards_blanknull_rename($pdo);
+    if (moirai_sqlite_table_exists($pdo, 'simcards__blanknull')) {
+        throw new RuntimeException('SIM-migratie: tijdelijke tabel staat nog naast simcards.');
+    }
+
+    $owns = !$pdo->inTransaction();
+    if ($owns) {
+        $pdo->beginTransaction();
+    }
+    try {
+        $pdo->exec('CREATE TABLE simcards__blanknull (' . implode(', ', $defs) . ')');
+        $pdo->exec(
+            'INSERT INTO simcards__blanknull (' . implode(', ', $names) . ') SELECT '
+            . implode(', ', $select) . ' FROM simcards'
+        );
+        $oldCount = (int) $pdo->query('SELECT COUNT(*) FROM simcards')->fetchColumn();
+        $newCount = (int) $pdo->query('SELECT COUNT(*) FROM simcards__blanknull')->fetchColumn();
+        if ($oldCount !== $newCount) {
+            throw new RuntimeException('SIM-migratie: rijtelling wijkt af.');
+        }
+        $pdo->exec('CREATE UNIQUE INDEX simcards__blanknull_code_norm ON simcards__blanknull (code_norm)');
+        $pdo->exec('CREATE UNIQUE INDEX simcards__blanknull_phone ON simcards__blanknull (telefoonnummer_norm)');
+        $pdo->exec('DROP TABLE simcards');
+        $pdo->exec('ALTER TABLE simcards__blanknull RENAME TO simcards');
+        $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_code_norm_unique ON simcards (code_norm)');
+        $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS simcards_telefoonnummer_norm_unique ON simcards (telefoonnummer_norm)');
+        $pdo->exec('DROP INDEX IF EXISTS simcards__blanknull_code_norm');
+        $pdo->exec('DROP INDEX IF EXISTS simcards__blanknull_phone');
+        if ($owns) {
+            $pdo->commit();
+        }
+    } catch (Throwable $error) {
+        if ($owns && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $error;
+    }
 }
 
 function moirai_migrate_laptop_os_column(PDO $pdo): void
@@ -1616,9 +1892,6 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
         if ($keyValue === '') {
             throw new InvalidArgumentException(moirai_loc('moirai.error.sim_code_required'));
         }
-        if (trim((string) ($sanitized['telefoonnummer'] ?? '')) === '') {
-            throw new InvalidArgumentException(moirai_loc('moirai.error.phone_required'));
-        }
     } else {
         $keyValue = $sanitized[$keyField];
         if ($sanitized['model'] === '') {
@@ -1704,7 +1977,7 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'code' => $keyValue,
             'code_norm' => moirai_normalize_simcard_code($keyValue),
             'telefoonnummer' => $sanitized['telefoonnummer'],
-            'telefoonnummer_norm' => $sanitized['telefoonnummer_norm'],
+            'telefoonnummer_norm' => $sanitized['telefoonnummer_norm'] === '' ? null : $sanitized['telefoonnummer_norm'],
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
         $duplicate = moirai_simcard_duplicate_error(
@@ -2088,6 +2361,9 @@ function moirai_device_display_name(?array $device): string
     }
 
     $name = trim((string) ($device['naam'] ?? $device['model'] ?? ''));
+    if ($name === '') {
+        $name = trim((string) ($device['code'] ?? ''));
+    }
 
     return $name !== '' ? $name : 'apparaat';
 }

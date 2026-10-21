@@ -19,6 +19,9 @@ $moiraiJsKeys = [
     'moirai.badge.assigned', 'moirai.badge.reserve', 'moirai.badge.unavailable', 'moirai.badge.condition', 'moirai.unnamed', 'moirai.filter.all',
     'moirai.filter.os', 'moirai.filter.os_version', 'moirai.filter.model', 'moirai.filter.ram', 'moirai.filter.storage', 'moirai.filter.screen', 'moirai.filter.keyboard', 'moirai.filter.condition',
     'moirai.filter.name', 'moirai.filter.purchase_date',
+    'moirai.filter.age', 'moirai.filter.age_from', 'moirai.filter.age_to',
+    'moirai.filter.age_month', 'moirai.filter.age_months', 'moirai.filter.age_year', 'moirai.filter.age_years',
+    'moirai.filter.age_year_months', 'moirai.filter.age_years_months',
     'moirai.modal.device', 'moirai.modal.edit', 'moirai.modal.new', 'moirai.modal.assign', 'moirai.modal.history',
     'moirai.btn.edit', 'moirai.btn.assign', 'moirai.btn.history', 'moirai.btn.notes', 'moirai.btn.print_label', 'moirai.btn.save', 'moirai.btn.cancel',
     'moirai.btn.delete', 'moirai.btn.refresh_users', 'moirai.field.model', 'moirai.field.serial', 'moirai.field.imei',
@@ -216,6 +219,30 @@ $moiraiJsKeys = [
             .attr-filters {
                 grid-template-columns: repeat(4, 1fr);
             }
+        }
+
+        .attr-filters .age-filter {
+            grid-column: 1 / -1;
+        }
+
+        @media (min-width: 640px) {
+            .attr-filters .age-filter {
+                grid-column: span 2;
+            }
+        }
+
+        .age-filter-controls {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 8px;
+            align-items: end;
+        }
+
+        .age-filter-sep {
+            padding-bottom: 10px;
+            color: var(--kvt-muted);
+            text-align: center;
+            line-height: 1;
         }
 
         label {
@@ -878,6 +905,8 @@ $moiraiJsKeys = [
     };
     var listRequestId = 0;
 
+    var ageFilterMonthOptions = [0, 1, 2, 3, 6, 9, 12, 18, 24, 30, 36, 42, 48, 54, 60, 72, 84, 96, 108, 120];
+
     var filterConfig = {
         laptop: [
             { name: 'os', labelKey: 'moirai.filter.os' },
@@ -886,6 +915,7 @@ $moiraiJsKeys = [
             { name: 'ram', labelKey: 'moirai.filter.ram' },
             { name: 'opslag', labelKey: 'moirai.filter.storage' },
             { name: 'toetsenbord', labelKey: 'moirai.filter.keyboard' },
+            { name: 'leeftijd', labelKey: 'moirai.filter.age', type: 'age_range' },
             { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ],
         phone: [
@@ -894,6 +924,7 @@ $moiraiJsKeys = [
             { name: 'model', labelKey: 'moirai.filter.model' },
             { name: 'schermformaat', labelKey: 'moirai.filter.screen' },
             { name: 'opslag', labelKey: 'moirai.filter.storage' },
+            { name: 'leeftijd', labelKey: 'moirai.filter.age', type: 'age_range' },
             { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ],
         accessory: [
@@ -1069,11 +1100,7 @@ $moiraiJsKeys = [
             status: state.status
         };
 
-        filterConfig[tab].forEach(function (filter) {
-            if (state.attrFilters[filter.name]) {
-                params[filter.name] = state.attrFilters[filter.name];
-            }
-        });
+        appendAttrFilterParams(params, tab);
 
         return fetchJson(apiUrl(params)).then(function (data) {
             if (req !== listRequestId || tab !== state.tab) {
@@ -1090,11 +1117,73 @@ $moiraiJsKeys = [
         });
     }
 
+    function appendAttrFilterParams(params, tab) {
+        filterConfig[tab].forEach(function (filter) {
+            if (filter.type === 'age_range') {
+                if (state.attrFilters.leeftijd_min !== undefined && state.attrFilters.leeftijd_min !== '') {
+                    params.leeftijd_min = state.attrFilters.leeftijd_min;
+                }
+                if (state.attrFilters.leeftijd_max !== undefined && state.attrFilters.leeftijd_max !== '') {
+                    params.leeftijd_max = state.attrFilters.leeftijd_max;
+                }
+                return;
+            }
+            if (state.attrFilters[filter.name]) {
+                params[filter.name] = state.attrFilters[filter.name];
+            }
+        });
+    }
+
+    function formatAgeMonths(months) {
+        var total = Math.max(0, parseInt(months, 10) || 0);
+        var years = Math.floor(total / 12);
+        var rem = total % 12;
+        if (years === 0) {
+            return total === 1 ? t('moirai.filter.age_month') : t('moirai.filter.age_months', String(total));
+        }
+        if (rem === 0) {
+            return years === 1 ? t('moirai.filter.age_year') : t('moirai.filter.age_years', String(years));
+        }
+        if (years === 1) {
+            return t('moirai.filter.age_year_months', String(rem));
+        }
+        return t('moirai.filter.age_years_months', String(years), String(rem));
+    }
+
+    function ageSelectOptionsHtml(selected) {
+        var selectedStr = selected === undefined || selected === null ? '' : String(selected);
+        var html = '<option value="">' + escapeHtml(t('moirai.filter.all')) + '</option>';
+        ageFilterMonthOptions.forEach(function (months) {
+            var value = String(months);
+            var isSelected = selectedStr === value ? ' selected' : '';
+            html += '<option value="' + value + '"' + isSelected + '>' + escapeHtml(formatAgeMonths(months)) + '</option>';
+        });
+        if (selectedStr !== '' && ageFilterMonthOptions.indexOf(parseInt(selectedStr, 10)) === -1) {
+            html += '<option value="' + escapeHtml(selectedStr) + '" selected>' +
+                escapeHtml(formatAgeMonths(selectedStr)) + '</option>';
+        }
+        return html;
+    }
+
     function renderAttrFilters() {
         var config = filterConfig[state.tab];
         var options = state.filterOptions || {};
 
         attrFiltersEl.innerHTML = config.map(function (filter) {
+            if (filter.type === 'age_range') {
+                var minSelected = state.attrFilters.leeftijd_min || '';
+                var maxSelected = state.attrFilters.leeftijd_max || '';
+                var fromLabel = escapeHtml(t(filter.labelKey)) + ': ' + escapeHtml(t('moirai.filter.age_from'));
+                var html = '<div class="age-filter">';
+                html += '<div class="age-filter-controls">';
+                html += '<div><label for="filter-leeftijd_min">' + fromLabel + '</label>';
+                html += '<select id="filter-leeftijd_min" data-filter="leeftijd_min">' + ageSelectOptionsHtml(minSelected) + '</select></div>';
+                html += '<div class="age-filter-sep" aria-hidden="true">–</div>';
+                html += '<div><label for="filter-leeftijd_max">' + escapeHtml(t('moirai.filter.age_to')) + '</label>';
+                html += '<select id="filter-leeftijd_max" data-filter="leeftijd_max">' + ageSelectOptionsHtml(maxSelected) + '</select></div>';
+                html += '</div></div>';
+                return html;
+            }
             var selected = state.attrFilters[filter.name] || '';
             var html = '<div><label for="filter-' + filter.name + '">' + escapeHtml(t(filter.labelKey)) + '</label>';
             html += '<select id="filter-' + filter.name + '" data-filter="' + filter.name + '">';
@@ -1136,11 +1225,7 @@ $moiraiJsKeys = [
         var tab = state.tab;
         var params = { action: 'filters', type: tab };
 
-        filterConfig[tab].forEach(function (filter) {
-            if (state.attrFilters[filter.name]) {
-                params[filter.name] = state.attrFilters[filter.name];
-            }
-        });
+        appendAttrFilterParams(params, tab);
 
         return fetchJson(apiUrl(params)).then(function (data) {
             if (tab !== state.tab) {
@@ -1148,6 +1233,9 @@ $moiraiJsKeys = [
             }
             state.filterOptions = data.filters || {};
             filterConfig[tab].forEach(function (filter) {
+                if (filter.type === 'age_range') {
+                    return;
+                }
                 var selected = state.attrFilters[filter.name];
                 if (!selected) {
                     return;
@@ -2075,6 +2163,20 @@ $moiraiJsKeys = [
         }
         var name = select.getAttribute('data-filter');
         state.attrFilters[name] = select.value;
+        if ((name === 'leeftijd_min' || name === 'leeftijd_max') &&
+            state.attrFilters.leeftijd_min !== '' && state.attrFilters.leeftijd_max !== '' &&
+            state.attrFilters.leeftijd_min !== undefined && state.attrFilters.leeftijd_max !== undefined) {
+            var minMonths = parseInt(state.attrFilters.leeftijd_min, 10);
+            var maxMonths = parseInt(state.attrFilters.leeftijd_max, 10);
+            if (!isNaN(minMonths) && !isNaN(maxMonths) && minMonths > maxMonths) {
+                if (name === 'leeftijd_min') {
+                    state.attrFilters.leeftijd_max = state.attrFilters.leeftijd_min;
+                } else {
+                    state.attrFilters.leeftijd_min = state.attrFilters.leeftijd_max;
+                }
+                renderAttrFilters();
+            }
+        }
         loadFilterOptions().then(loadDevices);
     });
 

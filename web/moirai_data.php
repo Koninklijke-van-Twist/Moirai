@@ -102,6 +102,12 @@ const MOIRAI_PHONE_FILTER_FIELDS = [
     'fysieke_staat',
 ];
 
+/** Age range filter params (months since aanschafdatum); only laptops/phones. */
+const MOIRAI_AGE_FILTER_FIELDS = [
+    'leeftijd_min',
+    'leeftijd_max',
+];
+
 const MOIRAI_ACCESSORY_FIELDS = [
     'naam',
     'modelnummer',
@@ -1473,6 +1479,52 @@ function moirai_filter_fields_for_type(string $typeKey): array
     };
 }
 
+function moirai_type_supports_age_filter(string $typeKey): bool
+{
+    return in_array($typeKey, ['laptops', 'phones'], true);
+}
+
+/**
+ * Completed months since aanschafdatum (Y-m-d), or null when unknown/invalid.
+ */
+function moirai_device_age_months(array $device, ?DateTimeImmutable $today = null): ?int
+{
+    $purchase = trim((string) ($device['aanschafdatum'] ?? ''));
+    if ($purchase === '') {
+        return null;
+    }
+
+    $purchasedOn = DateTimeImmutable::createFromFormat('Y-m-d', $purchase);
+    $errors = DateTimeImmutable::getLastErrors();
+    if ($purchasedOn === false || ($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0) {
+        return null;
+    }
+
+    $today ??= moirai_today();
+    $purchasedOn = $purchasedOn->setTime(0, 0, 0);
+    $today = $today->setTime(0, 0, 0);
+    if ($purchasedOn > $today) {
+        return 0;
+    }
+
+    $diff = $purchasedOn->diff($today);
+
+    return ($diff->y * 12) + $diff->m;
+}
+
+function moirai_parse_non_negative_int($raw): ?int
+{
+    if (!is_scalar($raw)) {
+        return null;
+    }
+    $value = trim((string) $raw);
+    if ($value === '' || !preg_match('/^\d+$/', $value)) {
+        return null;
+    }
+
+    return (int) $value;
+}
+
 function moirai_empty_filter_cache(): array
 {
     $cache = [];
@@ -1588,8 +1640,21 @@ function moirai_get_filter_options(string $type, array $activeFilters = []): arr
             $sanitized[$field] = $value;
         }
     }
+    if (moirai_type_supports_age_filter($typeKey)) {
+        foreach (MOIRAI_AGE_FILTER_FIELDS as $ageField) {
+            if (!array_key_exists($ageField, $activeFilters)) {
+                continue;
+            }
+            $months = moirai_parse_non_negative_int($activeFilters[$ageField]);
+            if ($months !== null) {
+                $sanitized[$ageField] = (string) $months;
+            }
+        }
+    }
 
-    if ($sanitized === []) {
+    $attrOnly = array_intersect_key($sanitized, array_flip($fields));
+    $hasAge = isset($sanitized['leeftijd_min']) || isset($sanitized['leeftijd_max']);
+    if ($attrOnly === [] && !$hasAge) {
         $cache = moirai_read_filter_cache();
 
         return moirai_normalize_filter_options($typeKey, $cache[$typeKey] ?? moirai_empty_filter_cache()[$typeKey]);
@@ -2322,11 +2387,50 @@ function moirai_parse_list_filters(string $type, ?array $source = null): array
         }
     }
 
+    if (moirai_type_supports_age_filter($typeKey)) {
+        foreach (MOIRAI_AGE_FILTER_FIELDS as $ageField) {
+            if (!array_key_exists($ageField, $source) || $source[$ageField] === null) {
+                continue;
+            }
+            $raw = $source[$ageField];
+            if (!is_scalar($raw)) {
+                throw new InvalidArgumentException(moirai_loc('moirai.error.invalid_input'));
+            }
+            $months = moirai_parse_non_negative_int($raw);
+            if ($months !== null) {
+                $filters[$ageField] = (string) $months;
+            }
+        }
+    }
+
     return $filters;
 }
 
 function moirai_device_matches_filter(array $device, string $query, string $status, array $attrs = []): bool
 {
+    $ageMin = null;
+    $ageMax = null;
+    if (array_key_exists('leeftijd_min', $attrs)) {
+        $ageMin = moirai_parse_non_negative_int($attrs['leeftijd_min']);
+        unset($attrs['leeftijd_min']);
+    }
+    if (array_key_exists('leeftijd_max', $attrs)) {
+        $ageMax = moirai_parse_non_negative_int($attrs['leeftijd_max']);
+        unset($attrs['leeftijd_max']);
+    }
+    if ($ageMin !== null || $ageMax !== null) {
+        $ageMonths = moirai_device_age_months($device);
+        if ($ageMonths === null) {
+            return false;
+        }
+        if ($ageMin !== null && $ageMonths < $ageMin) {
+            return false;
+        }
+        if ($ageMax !== null && $ageMonths > $ageMax) {
+            return false;
+        }
+    }
+
     foreach ($attrs as $field => $value) {
         $value = trim((string) $value);
         if ($value === '') {

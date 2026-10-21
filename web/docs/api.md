@@ -136,7 +136,7 @@ Phone fields: `model`, `imei`, `schermformaat`, `opslag`, `os`, `os_versie`, `aa
 
 Accessory fields: `naam`, `modelnummer`, `beschrijving`, `aanschafdatum`, `fysieke_staat`. Accessory id is generated.
 
-SIM card fields: `code` (required, unique), `telefoonnummer` (required, unique), `fysieke_staat`. `code` is compared case-insensitively without spaces/dashes. `telefoonnummer` is stored as entered (readable) and compared in normalized E.164 form (`telefoonnummer_norm`, e.g. `+31612345678`): spaces, dashes, `+31`, `0031`, `(0)` and a leading `0` are treated alike. A duplicate returns `400` with a Dutch message naming the existing SIM card.
+SIM card fields: `code` (required, unique), `telefoonnummer` (optional), `fysieke_staat`. A blank SIM may be created without a number and filled in later via `update`. An empty number is stored as NULL and is not unique. `code` is compared case-insensitively without spaces/dashes. When `telefoonnummer` is set it is stored as entered (readable) and compared in normalized E.164 form (`telefoonnummer_norm`, e.g. `+31612345678`): spaces, dashes, `+31`, `0031`, `(0)` and a leading `0` are treated alike. An invalid number returns `400`. A duplicate of a non-empty number returns `400` with a Dutch message naming the existing SIM card.
 
 Success → `201` `{ "ok": true, "device": { } }`.
 

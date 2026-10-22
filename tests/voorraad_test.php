@@ -93,6 +93,17 @@ try {
 }
 expect($rawNeg, 'db CHECK constraint blocks negative quantity');
 
+// --- Knoppen −1 / +1 (zoals de UI ze aanroept) ---------------------------
+$step = moirai_voorraad_save(['naam' => 'Stap-test', 'aantal' => 0]);
+expect(moirai_voorraad_adjust($step['id'], 'add', '1')['aantal'] === 1, '+1 increments 0 -> 1');
+expect(moirai_voorraad_adjust($step['id'], 'add', '1')['aantal'] === 2, '+1 increments 1 -> 2');
+expect(moirai_voorraad_issue($step['id'])['aantal'] === 1, '-1 decrements 2 -> 1');
+expect(moirai_voorraad_issue($step['id'])['aantal'] === 0, '-1 decrements 1 -> 0');
+expect(invalid_message(static fn() => moirai_voorraad_issue($step['id'])) !== null, '-1 at 0 is refused');
+expect(moirai_voorraad_get($step['id'])['aantal'] === 0, '-1 never goes below 0');
+expect(moirai_voorraad_adjust($step['id'], 'add', '1')['aantal'] === 1, '+1 works again after reaching 0');
+moirai_voorraad_delete($step['id']);
+
 // --- Zoeken, label, verwijderen -------------------------------------------
 expect(count(moirai_voorraad_list('65w')) === 1, 'search matches properties case-insensitively');
 $_SERVER['HTTP_HOST'] = 'sleutels.kvt.nl';

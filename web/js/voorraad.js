@@ -111,21 +111,30 @@
             '</dd></div></dl>';
         if (isAdmin) {
             html += '<div class="voorraad-adjust"><div><label for="voorraad-adjust-amount">' + esc(t('voorraad.adjust.label')) + '</label>' +
-                '<input type="number" id="voorraad-adjust-amount" min="0" step="1" inputmode="numeric" value="1"></div>' +
-                '<button type="button" class="btn btn-secondary" data-adjust="add">' + esc(t('voorraad.btn.add')) + '</button>' +
-                '<button type="button" class="btn btn-secondary" data-adjust="set">' + esc(t('voorraad.btn.set')) + '</button></div>';
+                '<input type="number" id="voorraad-adjust-amount" min="0" step="1" inputmode="numeric" value="' + esc(item.aantal) + '"></div>' +
+                '<button type="button" class="btn btn-secondary" data-adjust="set">' + esc(t('voorraad.btn.set')) + '</button></div>' +
+                '<div class="voorraad-step">' +
+                '<button type="button" class="btn btn-primary" id="voorraad-minus"' + (item.aantal > 0 ? '' : ' disabled') + ' aria-label="' + esc(t('voorraad.btn.issue_aria')) + '">' + esc(t('voorraad.btn.issue')) + '</button>' +
+                '<button type="button" class="btn btn-primary" id="voorraad-plus" aria-label="' + esc(t('voorraad.btn.plus_one_aria')) + '">' + esc(t('voorraad.btn.plus_one')) + '</button>' +
+                '</div>';
         }
         modalBody.innerHTML = html;
         modalActions.innerHTML = '';
         if (isAdmin) {
-            var issueBtn = btn(t('voorraad.btn.issue'), 'btn-primary', function () {
+            document.getElementById('voorraad-minus').addEventListener('click', function () {
                 api('issue', null, { id: item.id }).then(function (data) {
                     updateItem(data.item);
                     showDetails(data.item);
                     msg(modalMsg, t('voorraad.issued', data.item.aantal), true);
                 }).catch(function (e) { msg(modalMsg, e.message); });
             });
-            issueBtn.disabled = item.aantal <= 0;
+            document.getElementById('voorraad-plus').addEventListener('click', function () {
+                api('adjust', null, { id: item.id, mode: 'add', amount: '1' }).then(function (data) {
+                    updateItem(data.item);
+                    showDetails(data.item);
+                    msg(modalMsg, t('voorraad.added', data.item.aantal), true);
+                }).catch(function (e) { msg(modalMsg, e.message); });
+            });
             modalBody.querySelectorAll('[data-adjust]').forEach(function (b) {
                 b.addEventListener('click', function () {
                     var amount = document.getElementById('voorraad-adjust-amount').value;

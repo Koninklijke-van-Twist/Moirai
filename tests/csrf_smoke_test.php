@@ -186,8 +186,10 @@ try {
     expect($r['status'] === 200 && ($r['json']['item']['aantal'] ?? -1) === 0, 'voorraad issue lowers to 0');
     $r = http('POST', 'voorraad_api.php?action=issue', ['id' => $vid], $ok);
     expect($r['status'] === 400, 'voorraad issue at 0 refused');
-    $r = http('POST', 'voorraad_api.php?action=adjust', ['id' => $vid, 'mode' => 'add', 'amount' => '3'], $ok);
-    expect($r['status'] === 200 && ($r['json']['item']['aantal'] ?? -1) === 3, 'voorraad top up works');
+    $r = http('POST', 'voorraad_api.php?action=adjust', ['id' => $vid, 'mode' => 'add', 'amount' => '1'], $ok);
+    expect($r['status'] === 200 && ($r['json']['item']['aantal'] ?? -1) === 1, 'voorraad +1 works');
+    $r = http('POST', 'voorraad_api.php?action=adjust', ['id' => $vid, 'mode' => 'set', 'amount' => '3'], $ok);
+    expect($r['status'] === 200 && ($r['json']['item']['aantal'] ?? -1) === 3, 'voorraad set quantity works');
     $r = http('POST', 'print_label.php', ['type' => 'voorraad', 'id' => $vid], $ok);
     expect($r['status'] === 200 && str_starts_with((string) ($r['json']['url'] ?? ''), 'posprint://'), 'voorraad print label works');
     expect(http('GET', 'voorraad_api.php?action=list')['status'] === 200, 'GET voorraad list without token works');

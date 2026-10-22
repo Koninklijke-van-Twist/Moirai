@@ -26,6 +26,8 @@ $voorraadKeys = array_merge($voorraadKeys, [
     .voorraad-adjust { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--kvt-line); }
     .voorraad-adjust input { width: 110px; }
     .message.voorraad-ok { background: #e7f6ec; color: #166534; }
+    .voorraad-step { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .voorraad-step .btn { font-size: 1.2rem; padding: 12px; }
     .voorraad-hint { font-size: 0.8rem; color: var(--kvt-muted); margin: 4px 0 0; }
 </style>
 

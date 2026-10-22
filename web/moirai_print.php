@@ -220,9 +220,8 @@ function moirai_build_voorraad_pos_document(array $item): array
     $props = array_values(array_filter(array_map('trim', explode("\n", (string) ($item['eigenschappen'] ?? ''))), 'strlen'));
     if ($props !== []) {
         $body[] = '---';
-        foreach ($props as $line) {
-            $body[] = ':center: ' . $line;
-        }
+        // Op het label op één regel, kommagescheiden (op de pagina blijft het één per regel).
+        $body[] = ':center: ' . implode(', ', $props);
     }
     $body[] = '@cut';
 

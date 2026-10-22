@@ -5,6 +5,7 @@ require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/logincheck.php';
 require_once __DIR__ . '/localization.php';
 require_once __DIR__ . '/moirai_data.php';
+require_once __DIR__ . '/moirai_voorraad.php';
 require_once __DIR__ . '/kvt_chat_boot.php';
 
 $isAdmin = moirai_is_admin();
@@ -789,6 +790,7 @@ $moiraiJsKeys = [
             <button type="button" class="tab" data-tab="phone" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.phones')) ?></button>
             <button type="button" class="tab" data-tab="accessory" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.accessories')) ?></button>
             <button type="button" class="tab" data-tab="simcard" role="tab" aria-selected="false"><?= moirai_h(LOC('moirai.tab.simcards')) ?></button>
+            <button type="button" class="tab" data-tab="voorraad" role="tab" aria-selected="false"><?= moirai_h(LOC('voorraad.tab')) ?></button>
             <?php if ($isAdmin): ?>
             <button type="button" class="tab" data-tab="budget" role="tab" aria-selected="false"><?= moirai_h(LOC('budget.tab')) ?></button>
             <?php endif; ?>
@@ -819,6 +821,7 @@ $moiraiJsKeys = [
         <div class="device-list" id="device-list" hidden></div>
         <div class="empty-state" id="empty-state" hidden><?= moirai_h(LOC('moirai.empty.devices')) ?></div>
         <?php require __DIR__ . '/telefoonbudget_ui.php'; ?>
+        <?php require __DIR__ . '/voorraad_ui.php'; ?>
     </main>
 </div>
 
@@ -2100,11 +2103,34 @@ $moiraiJsKeys = [
             if (!window.MoiraiBudget) {
                 return Promise.resolve();
             }
+            if (mainPanel.classList.contains('is-voorraad') && window.MoiraiVoorraad) {
+                mainPanel.classList.remove('is-voorraad');
+                window.MoiraiVoorraad.activate(false);
+            }
             listRequestId++;
             state.tab = 'budget';
             mainPanel.classList.add('is-budget');
             window.MoiraiBudget.activate(true);
             return Promise.resolve();
+        }
+        if (type === 'voorraad') {
+            if (!window.MoiraiVoorraad) {
+                return Promise.resolve();
+            }
+            if (mainPanel.classList.contains('is-budget') && window.MoiraiBudget) {
+                mainPanel.classList.remove('is-budget');
+                window.MoiraiBudget.activate(false);
+            }
+            listRequestId++;
+            state.tab = 'voorraad';
+            mainPanel.classList.add('is-voorraad');
+            return window.MoiraiVoorraad.activate(true);
+        }
+        if (mainPanel.classList.contains('is-voorraad')) {
+            mainPanel.classList.remove('is-voorraad');
+            if (window.MoiraiVoorraad) {
+                window.MoiraiVoorraad.activate(false);
+            }
         }
         if (mainPanel.classList.contains('is-budget')) {
             mainPanel.classList.remove('is-budget');
@@ -2135,6 +2161,14 @@ $moiraiJsKeys = [
 
     function handleDeepLinkFromUrl() {
         migrateHashDeepLinkToQuery();
+        var voorraadId = new URLSearchParams(window.location.search).get('t') === 'v'
+            ? new URLSearchParams(window.location.search).get('d')
+            : null;
+        if (voorraadId) {
+            return activateTab('voorraad').then(function () {
+                return window.MoiraiVoorraad ? window.MoiraiVoorraad.openCategory(voorraadId) : null;
+            }).then(clearDeepLinkFromUrl, clearDeepLinkFromUrl);
+        }
         var link = parseDeepLinkFromUrl();
         if (!link) {
             return Promise.resolve();

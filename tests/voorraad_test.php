@@ -111,7 +111,13 @@ $_SERVER['SCRIPT_NAME'] = '/moirai/print_label.php';
 $doc = moirai_build_voorraad_pos_document(moirai_voorraad_get($dp['id']));
 expect(str_contains($doc['body'], '# Displayport Kabel'), 'label contains the name');
 expect(str_contains($doc['body'], '@qr http://sleutels.kvt.nl/moirai/index.php?t=v&d=' . $dp['id']), 'label QR links directly to the category');
-expect(str_contains($doc['body'], 'Blauwe uitvoering'), 'label lists properties');
+expect(str_contains($doc['body'], ":center: 2 meter lang, Blauwe uitvoering\n"), 'label lists properties on one line, comma separated');
+$muis = moirai_voorraad_save(['naam' => 'Muis label', 'eigenschappen' => "\nBluetooth\n\n  \nMuis\n", 'aantal' => 1]);
+$muisDoc = moirai_build_voorraad_pos_document($muis);
+expect(str_contains($muisDoc['body'], ":center: Bluetooth, Muis\n"), 'label: "Bluetooth\\nMuis" becomes "Bluetooth, Muis", empty lines trimmed');
+expect(substr_count($muisDoc['body'], 'Bluetooth') === 1 && !str_contains($muisDoc['body'], ', ,'), 'label has no empty entries');
+expect(moirai_voorraad_get($muis['id'])['eigenschappen'] === "Bluetooth\n\n  \nMuis", 'stored properties keep one per line');
+moirai_voorraad_delete($muis['id']);
 
 $_SESSION = ['user' => ['email' => 'tester@kvt.nl', 'name' => 'Tester', 'admin' => true]];
 moirai_ensure_kvt_chat();

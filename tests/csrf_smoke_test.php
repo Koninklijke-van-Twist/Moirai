@@ -132,6 +132,10 @@ try {
         ['budget_api.php?action=add_person', ['email' => 'rook@hunter.be', 'indiensttreding' => '2025-01-01']],
         ['budget_api.php?action=save_settings', ['start_cents' => '600', 'monthly_cents' => '25']],
         ['budget_api.php?action=remove_person', ['email' => 'rook@hunter.be']],
+        ['voorraad_api.php?action=save', ['naam' => 'Rooktest kabel', 'aantal' => 1]],
+        ['voorraad_api.php?action=issue', ['id' => 1]],
+        ['voorraad_api.php?action=adjust', ['id' => 1, 'mode' => 'set', 'amount' => 5]],
+        ['voorraad_api.php?action=delete', ['id' => 1]],
     ];
     foreach ($mutations as [$path, $body]) {
         expect($isCsrf(http('POST', $path, $body)), "no token -> 403 csrf: {$path}");
@@ -171,6 +175,24 @@ try {
     expect($r['status'] === 200 && ($r['json']['ok'] ?? false) === true, 'budget remove_person with token works');
     $r = http('POST', 'devices_api.php?action=delete', ['type' => 'phone', 'id' => $imei], $ok);
     expect($r['status'] === 200 && ($r['json']['ok'] ?? false) === true, 'delete device with token works');
+
+    // Voorraad: aanmaken, uniek (hoofdletterongevoelig), uitgeven nooit onder 0, label, verwijderen.
+    $r = http('POST', 'voorraad_api.php?action=save', ['naam' => 'Rooktest kabel', 'eigenschappen' => '2 meter', 'aantal' => 1], $ok);
+    $vid = (string) ($r['json']['item']['id'] ?? '');
+    expect($r['status'] === 200 && $vid !== '', 'voorraad save with token works');
+    $r = http('POST', 'voorraad_api.php?action=save', ['naam' => 'ROOKTEST KABEL', 'aantal' => 1], $ok);
+    expect($r['status'] === 400 && str_contains((string) ($r['json']['error'] ?? ''), 'ROOKTEST KABEL'), 'voorraad duplicate name refused with clear message');
+    $r = http('POST', 'voorraad_api.php?action=issue', ['id' => $vid], $ok);
+    expect($r['status'] === 200 && ($r['json']['item']['aantal'] ?? -1) === 0, 'voorraad issue lowers to 0');
+    $r = http('POST', 'voorraad_api.php?action=issue', ['id' => $vid], $ok);
+    expect($r['status'] === 400, 'voorraad issue at 0 refused');
+    $r = http('POST', 'voorraad_api.php?action=adjust', ['id' => $vid, 'mode' => 'add', 'amount' => '3'], $ok);
+    expect($r['status'] === 200 && ($r['json']['item']['aantal'] ?? -1) === 3, 'voorraad top up works');
+    $r = http('POST', 'print_label.php', ['type' => 'voorraad', 'id' => $vid], $ok);
+    expect($r['status'] === 200 && str_starts_with((string) ($r['json']['url'] ?? ''), 'posprint://'), 'voorraad print label works');
+    expect(http('GET', 'voorraad_api.php?action=list')['status'] === 200, 'GET voorraad list without token works');
+    $r = http('POST', 'voorraad_api.php?action=delete', ['id' => $vid], $ok);
+    expect($r['status'] === 200 && ($r['json']['ok'] ?? false) === true, 'voorraad delete with token works');
 
     // Leesacties blijven zonder token werken.
     expect(http('GET', 'devices_api.php?action=list&type=phone')['status'] === 200, 'GET list without token still works');

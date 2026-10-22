@@ -194,7 +194,52 @@ function moirai_build_device_pos_document(array $device, string $type): array
 
 function moirai_build_device_posprint_url(array $device, string $type): string
 {
-    $pos = moirai_build_device_pos_document($device, $type);
+    return moirai_build_posprint_url_for_document(moirai_build_device_pos_document($device, $type));
+}
+
+/**
+ * Label voor een voorraadcategorie: naam, QR naar de categorie (index.php?t=v&d=<id>) en eigenschappen.
+ *
+ * @return array{version: int, metadata: array, body: string}
+ */
+function moirai_build_voorraad_pos_document(array $item): array
+{
+    $id = trim((string) ($item['id'] ?? ''));
+    $title = trim((string) ($item['naam'] ?? ''));
+    if ($title === '') {
+        $title = moirai_loc('moirai.unnamed');
+    }
+    $qrUrl = moirai_absolute_web_url('index.php') . '?' . http_build_query(['t' => 'v', 'd' => $id]);
+    $logoUrl = moirai_absolute_web_url('icons/kvt-logo.png');
+
+    $body = [];
+    $body[] = ':center:';
+    $body[] = '@image ' . $logoUrl . ' width=50% align=center';
+    $body[] = '# ' . $title;
+    $body[] = '@qr ' . $qrUrl . ' size=4 ecc=M align=center';
+    $props = array_values(array_filter(array_map('trim', explode("\n", (string) ($item['eigenschappen'] ?? ''))), 'strlen'));
+    if ($props !== []) {
+        $body[] = '---';
+        foreach ($props as $line) {
+            $body[] = ':center: ' . $line;
+        }
+    }
+    $body[] = '@cut';
+
+    return [
+        'version' => 1,
+        'metadata' => [
+            'title' => 'Moirai: ' . $title,
+            'page_width_mm' => 53.0,
+            'chars_per_line' => 32,
+            'codepage' => 'CP437',
+        ],
+        'body' => implode("\n", $body) . "\n",
+    ];
+}
+
+function moirai_build_posprint_url_for_document(array $pos): string
+{
     $code = moirai_create_print_verify_code();
     $referrer = moirai_absolute_web_url('print_verify.php') . '?' . http_build_query([
         'code' => $code,

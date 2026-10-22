@@ -26,6 +26,18 @@ try {
         moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.invalid_input')], 400);
     }
 
+    if ($type === 'voorraad') {
+        require_once __DIR__ . '/moirai_voorraad.php';
+        $item = moirai_voorraad_get($id);
+        if ($item === null) {
+            moirai_json_response(['ok' => false, 'error' => moirai_loc('voorraad.error.not_found')], 404);
+        }
+        moirai_json_response([
+            'ok' => true,
+            'url' => moirai_build_posprint_url_for_document(moirai_build_voorraad_pos_document($item)),
+        ]);
+    }
+
     if (moirai_type_key($type) !== null && !moirai_type_can_print_label($type)) {
         moirai_json_response(['ok' => false, 'error' => moirai_loc('moirai.error.print_not_supported')], 400);
     }

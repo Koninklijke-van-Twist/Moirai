@@ -93,3 +93,9 @@ Tim moet `$mimirApi` (en optioneel `$mimirBase`) lokaal/op de server zetten, en 
 ## auth.php
 
 Geen `auth.php` in deze repository (staat in `.gitignore`). Lokaal/op de server de Mímir-sleutel zetten zoals hierboven, en `$baseUrl`, `$auth_list`, `$environment` en `$auth` laten staan naast `$mimirApi` zodat de directe BC-fallback werkt als Mímir uitvalt (web, `nightly.php` en `download_enroll.php`). Graph-credentials blijven nodig voor gebruikerslijsten. Zie `web/auth.example.php`.
+
+## Voorraad
+
+Tabblad **Voorraad** (`voorraad_ui.php`, `js/voorraad.js`, server `voorraad_api.php` / `moirai_voorraad.php`): geen losse items maar categorieën met een aantal op voorraad. Velden: **Naam** (uniek, hoofdletterongevoelig; afgedwongen in code én met een UNIQUE-index op `naam_norm`), **Eigenschappen** (vrije tekst, één per regel, niet uniek) en **Aantal** (geheel getal ≥ 0, ook als `CHECK` in SQLite). Opslag in dezelfde `data/moirai.sqlite` (tabel `voorraad`, wordt automatisch aangemaakt). Iedereen die is ingelogd mag kijken; aanmaken, bewerken, verwijderen, *Uitgeven (−1)*, *Bijvullen* en *Aantal instellen* alleen ICT-admins (met CSRF-token). Uitgeven verlaagt atomair (`WHERE aantal > 0`) en komt nooit onder 0. Notities via KvtChat (thread `device:voorraad:<id>`), label via `print_label.php` met `type=voorraad`; de QR linkt naar `index.php?t=v&d=<id>` en opent direct de categorie.
+
+Tests: `php tests/voorraad_test.php` (plus voorraad-checks in `tests/csrf_smoke_test.php`).

@@ -1614,7 +1614,9 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
                 $rows = moirai_budget_import_parse(moirai_spreadsheet_read((string) $file['tmp_name'], (string) $file['name']));
                 $token = bin2hex(random_bytes(16));
                 // Rijen blijven server-side (sessie); de client stuurt alleen keuzes terug.
-                $_SESSION['moirai_budget_import'] = ['token' => $token, 'rows' => $rows];
+                moirai_budget_session_write(static function () use ($token, $rows): void {
+                    $_SESSION['moirai_budget_import'] = ['token' => $token, 'rows' => $rows];
+                });
                 return [200, ['ok' => true, 'token' => $token] + moirai_budget_import_preview($rows)];
             case 'import_commit':
                 $stored = $_SESSION['moirai_budget_import'] ?? null;
@@ -1627,7 +1629,9 @@ function moirai_budget_api_dispatch(string $action, string $method, array $paylo
                     is_array($payload['starts'] ?? null) ? $payload['starts'] : [],
                     is_array($payload['names'] ?? null) ? array_map('strval', $payload['names']) : []
                 );
-                unset($_SESSION['moirai_budget_import']);
+                moirai_budget_session_write(static function (): void {
+                    unset($_SESSION['moirai_budget_import']);
+                });
                 return [200, ['ok' => true, 'result' => $result]];
             default:
                 return [400, ['ok' => false, 'error' => moirai_loc('moirai.error.unknown_action')]];
@@ -1893,4 +1897,20 @@ function moirai_budget_api_purchase_result(int $id, bool $replay): array
         'eigen_bijdrage_eur' => $purchase['eigen_bijdrage_eur'],
         'budget' => $summary,
     ];
+}
+
+/**
+ * Heropent de sessie kort om te schrijven en sluit hem direct weer, zodat
+ * trage budgetacties het sessielock niet vasthouden.
+ */
+function moirai_budget_session_write(callable $write): void
+{
+    $reopened = false;
+    if (PHP_SAPI !== 'cli' && session_status() !== PHP_SESSION_ACTIVE && !headers_sent()) {
+        $reopened = @session_start();
+    }
+    $write();
+    if ($reopened) {
+        session_write_close();
+    }
 }

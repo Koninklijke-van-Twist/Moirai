@@ -122,6 +122,10 @@ if (is_trusted_requester()) {
 
     $_SESSION['user']['admin'] = $isAdmin;
 
+    // Admin-vlag bewaard; direct sluiten zodat analytics en de pagina het
+    // sessielock niet vasthouden.
+    session_write_close();
+
     $analyticsEmail = strtolower(trim((string) ($_SESSION['user']['email'] ?? '')));
     $analyticsApiKey = trim((string) ($_SESSION['user']['api_key'] ?? ''));
     $analyticsOid = strtolower(trim((string) ($_SESSION['user']['oid'] ?? '')));

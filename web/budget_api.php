@@ -23,10 +23,8 @@ if (strtoupper($method) === 'POST') {
         $payload = $_POST + $_GET;
     }
 }
-// localization.php heeft de sessie gesloten; de import bewaart rijen in de sessie.
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    @session_start();
-}
+// localization.php heeft de sessie gesloten; de import heropent hem alleen kort
+// om rijen te bewaren (moirai_budget_session_write()).
 $csrf = (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? $payload['_csrf'] ?? '');
 
 try {

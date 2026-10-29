@@ -223,6 +223,7 @@ function moirai_api_apply_actor(string $label): void
         'name' => $label,
         'admin' => true,
     ];
+    session_write_close();
 }
 
 /**

@@ -32,6 +32,8 @@ $moiraiJsKeys = [
     'moirai.field.screen', 'moirai.field.condition', 'moirai.field.assigned_to', 'moirai.select.choose', 'moirai.select.reserve', 'moirai.select.unavailable',
     'moirai.condition.uitstekend', 'moirai.condition.netjes', 'moirai.condition.lichte_slijtage', 'moirai.condition.beschadigd',
     'moirai.condition.phrase.uitstekend', 'moirai.condition.phrase.netjes', 'moirai.condition.phrase.lichte_slijtage', 'moirai.condition.phrase.beschadigd',
+    'moirai.field.sim_format', 'moirai.filter.sim_format', 'moirai.badge.sim_format', 'moirai.sim_format.unknown',
+    'moirai.sim_format.1ff', 'moirai.sim_format.2ff', 'moirai.sim_format.3ff', 'moirai.sim_format.4ff', 'moirai.sim_format.nieuw_in_kaart',
     'moirai.status.all', 'moirai.status.assigned', 'moirai.status.reserve', 'moirai.status.unavailable',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
@@ -476,6 +478,11 @@ $moiraiJsKeys = [
             color: #854d0e;
         }
 
+        .badge-condition-sim {
+            background: #eef2f7;
+            color: #334155;
+        }
+
         .badge-condition-beschadigd {
             background: #fecaca;
             color: #b91c1c;
@@ -891,6 +898,13 @@ $moiraiJsKeys = [
         ],
         MOIRAI_CONDITION_OPTIONS
     ), JSON_UNESCAPED_UNICODE) ?>;
+    var simFormatOptions = <?= json_encode(array_map(
+        static fn(string $value): array => [
+            'value' => $value,
+            'labelKey' => 'moirai.sim_format.' . $value,
+        ],
+        MOIRAI_SIM_FORMAT_OPTIONS
+    ), JSON_UNESCAPED_UNICODE) ?>;
     var conditionDefault = <?= json_encode(MOIRAI_CONDITION_DEFAULT) ?>;
     var labelTypes = <?= json_encode(array_values(array_map('moirai_public_type', MOIRAI_LABEL_TYPE_KEYS))) ?>;
     var i18n = <?= localizationJsTranslations($moiraiJsKeys) ?>;
@@ -936,7 +950,7 @@ $moiraiJsKeys = [
             { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
         ],
         simcard: [
-            { name: 'fysieke_staat', labelKey: 'moirai.filter.condition' }
+            { name: 'fysieke_staat', labelKey: 'moirai.filter.sim_format' }
         ]
     };
 
@@ -1203,7 +1217,7 @@ $moiraiJsKeys = [
 
     function filterValueLabel(fieldName, value) {
         if (fieldName === 'fysieke_staat') {
-            return t('moirai.condition.' + value);
+            return state.tab === 'simcard' ? simFormatLabel(value) : t('moirai.condition.' + value);
         }
         return value;
     }
@@ -1219,7 +1233,15 @@ $moiraiJsKeys = [
         return selectOptionValue(option);
     }
 
+    function simFormatLabel(value) {
+        var key = String(value || '').trim();
+        return key ? t('moirai.sim_format.' + key) : t('moirai.sim_format.unknown');
+    }
+
     function conditionPhrase(value) {
+        if (state.tab === 'simcard') {
+            return t('moirai.field.sim_format') + ': ' + simFormatLabel(value);
+        }
         var key = String(value || conditionDefault || 'uitstekend').trim() || 'uitstekend';
         return t('moirai.condition.phrase.' + key);
     }
@@ -1368,6 +1390,10 @@ $moiraiJsKeys = [
             var conditionKey = String(device.fysieke_staat || conditionDefault || 'uitstekend').trim() || 'uitstekend';
             var conditionBadgeClass = 'badge-condition-' + conditionKey;
             var conditionBadgeText = t('moirai.badge.condition', t('moirai.condition.' + conditionKey));
+            if (state.tab === 'simcard') {
+                conditionBadgeClass = 'badge-condition-sim';
+                conditionBadgeText = t('moirai.badge.sim_format', simFormatLabel(device.fysieke_staat));
+            }
             var key = device[keyField(state.tab)] || device.id;
             var qrIcon = device.qr_geldig
                 ? '<span class="device-qr-icon" aria-hidden="true"><img src="icons/qr-verified.svg" alt=""></span>'
@@ -1444,10 +1470,17 @@ $moiraiJsKeys = [
         }
 
         if (type === 'simcard') {
+            var simFormatField = {
+                name: 'fysieke_staat',
+                labelKey: 'moirai.field.sim_format',
+                type: 'select',
+                options: simFormatOptions,
+                viewAsPhrase: true
+            };
             return [
                 { name: 'telefoonnummer', labelKey: 'moirai.field.phone_number', inputType: 'tel', allowBlank: true },
                 { name: 'code', labelKey: 'moirai.field.sim_code', required: true, key: true },
-                conditionField
+                simFormatField
             ];
         }
 

@@ -46,6 +46,15 @@ const MOIRAI_CONDITION_OPTIONS = [
     'beschadigd',
 ];
 
+// SIM-kaarten: fysieke staat is een SIM-formaat, geen schade. Leeg = onbekend formaat.
+const MOIRAI_SIM_FORMAT_OPTIONS = [
+    '1ff',
+    '2ff',
+    '3ff',
+    '4ff',
+    'nieuw_in_kaart',
+];
+
 const MOIRAI_LAPTOP_OS_OPTIONS = [
     'Windows',
     'OSX',
@@ -315,7 +324,7 @@ function moirai_normalize_filter_options(string $typeKey, array $options): array
     }
 
     if (isset($options['fysieke_staat'])) {
-        $options['fysieke_staat'] = MOIRAI_CONDITION_OPTIONS;
+        $options['fysieke_staat'] = $typeKey === 'simcards' ? MOIRAI_SIM_FORMAT_OPTIONS : MOIRAI_CONDITION_OPTIONS;
     }
 
     return $options;
@@ -356,8 +365,50 @@ function moirai_normalize_condition(string $value): string
     throw new InvalidArgumentException(moirai_loc('moirai.error.condition_invalid'));
 }
 
+/** SIM-formaat: '' (onbekend) of een van MOIRAI_SIM_FORMAT_OPTIONS. */
+function moirai_normalize_sim_format(string $value): string
+{
+    $value = strtolower(trim($value));
+    if ($value === '') {
+        return '';
+    }
+    $value = str_replace(['-', ' '], '_', $value);
+    $aliases = ['full_size' => '1ff', 'mini_sim' => '2ff', 'micro_sim' => '3ff', 'nano_sim' => '4ff'];
+    $value = $aliases[$value] ?? $value;
+    if (in_array($value, MOIRAI_SIM_FORMAT_OPTIONS, true)) {
+        return $value;
+    }
+    throw new InvalidArgumentException(moirai_loc('moirai.error.sim_format_invalid'));
+}
+
+/** Weergave SIM-formaat: oude schadewaarden (Goed/Beschadigd/...) tonen als onbekend (''). */
+function moirai_sim_format_display(string $value): string
+{
+    try {
+        return moirai_normalize_sim_format($value);
+    } catch (InvalidArgumentException) {
+        return '';
+    }
+}
+
+/** Aantal SIM-kaarten met een oude (schade)waarde in fysieke_staat; die worden niet geconverteerd. */
+function moirai_count_simcards_legacy_condition(PDO $pdo): int
+{
+    $count = 0;
+    foreach ($pdo->query('SELECT fysieke_staat FROM simcards') as $row) {
+        $value = trim((string) ($row['fysieke_staat'] ?? ''));
+        if ($value !== '' && moirai_sim_format_display($value) === '') {
+            $count++;
+        }
+    }
+    return $count;
+}
+
 function moirai_normalize_condition_display(string $value): string
 {
+    if (in_array(strtolower(trim($value)), MOIRAI_SIM_FORMAT_OPTIONS, true)) {
+        return strtolower(trim($value));
+    }
     try {
         return moirai_normalize_condition($value);
     } catch (InvalidArgumentException) {
@@ -367,7 +418,9 @@ function moirai_normalize_condition_display(string $value): string
 
 function moirai_validate_device_fields(string $typeKey, array &$sanitized, bool $isNew): void
 {
-    $sanitized['fysieke_staat'] = moirai_normalize_condition((string) ($sanitized['fysieke_staat'] ?? ''));
+    $sanitized['fysieke_staat'] = $typeKey === 'simcards'
+        ? moirai_normalize_sim_format((string) ($sanitized['fysieke_staat'] ?? ''))
+        : moirai_normalize_condition((string) ($sanitized['fysieke_staat'] ?? ''));
 
     if ($typeKey === 'accessories') {
         $sanitized['aanschafdatum'] = moirai_validate_aanschafdatum($sanitized['aanschafdatum'] ?? '', $isNew);
@@ -1920,7 +1973,9 @@ function moirai_row_to_device(array $row, string $typeKey): array
         $device['beschrijving'] = (string) ($row['beschrijving'] ?? '');
     }
 
-    $device['fysieke_staat'] = moirai_normalize_condition_display((string) ($row['fysieke_staat'] ?? ''));
+    $device['fysieke_staat'] = $typeKey === 'simcards'
+        ? moirai_sim_format_display((string) ($row['fysieke_staat'] ?? ''))
+        : moirai_normalize_condition_display((string) ($row['fysieke_staat'] ?? ''));
 
     return moirai_public_device($device);
 }
@@ -2165,6 +2220,12 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             'fysieke_staat' => $sanitized['fysieke_staat'],
         ] + $assignment;
     } elseif ($typeKey === 'simcards') {
+        if (!$isNew && $sanitized['fysieke_staat'] === '') {
+            // Geen formaat gekozen: bewaarde (oude) waarde laten staan, nooit wissen.
+            $old = $pdo->prepare('SELECT fysieke_staat FROM simcards WHERE code = :code LIMIT 1');
+            $old->execute(['code' => $originalKey]);
+            $sanitized['fysieke_staat'] = (string) ($old->fetchColumn() ?: '');
+        }
         $params = [
             'code' => $keyValue,
             'code_norm' => moirai_normalize_simcard_code($keyValue),

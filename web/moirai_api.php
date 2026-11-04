@@ -282,6 +282,7 @@ function moirai_api_help(): array
         ],
         'statuses' => ['all', 'assigned', 'reserve', 'unavailable'],
         'conditions' => MOIRAI_CONDITION_OPTIONS,
+        'sim_formats' => MOIRAI_SIM_FORMAT_OPTIONS,
         'practice' => [
             'simcard' => 'Id = code. code is required and unique. telefoonnummer is optional (blank SIM, stored as NULL and not unique). When set it is unique, compared normalized (spaces/dashes ignored, 06… = +316… = 00316…). Fill telefoonnummer later via update. No labels: label_pos/print_label return 400 print_not_supported.',
             'laptop_create' => 'API-required: model, serienummer. Still fill ram, opslag, cpu, os, os_versie, toetsenbord, aanschafdatum, fysieke_staat on create.',
@@ -655,6 +656,8 @@ function moirai_api_dispatch(string $action): array
                 'label_types' => moirai_api_label_types(),
                 'statuses' => ['all', 'assigned', 'reserve', 'unavailable'],
                 'conditions' => MOIRAI_CONDITION_OPTIONS,
+                'sim_formats' => MOIRAI_SIM_FORMAT_OPTIONS,
+                'sim_legacy_condition_count' => moirai_count_simcards_legacy_condition(moirai_db()),
                 'laptop_os' => MOIRAI_LAPTOP_OS_OPTIONS,
                 'phone_os' => MOIRAI_PHONE_OS_OPTIONS,
                 'laptop_keyboards' => MOIRAI_LAPTOP_KEYBOARD_OPTIONS,

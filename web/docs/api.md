@@ -85,6 +85,8 @@ Statuses: `all`, `assigned`, `reserve`, `unavailable`.
 
 Physical state (`fysieke_staat`): `uitstekend`, `netjes`, `lichte_slijtage`, `beschadigd`.
 
+SIM cards use `fysieke_staat` as **SIM format** instead: `1ff` (Full-Size), `2ff` (Mini-SIM), `3ff` (Micro-SIM), `4ff` (Nano-SIM), `nieuw_in_kaart` (new, still in the card), or empty (unknown format). Old damage values on existing SIM cards are kept in storage but returned as empty until a format is chosen; an update without a format keeps the stored value. `lookups` lists them as `sim_formats` and reports `sim_legacy_condition_count` (SIM cards that still hold an old damage value).
+
 ## List / get
 
 `GET api.php?action=list&type=laptop&q=thinkpad&status=reserve&os=Windows`

@@ -352,7 +352,7 @@ expect($sim['id'] === '8931 0400 1234 5678 901', 'create sim: id is code');
 expect($sim['telefoonnummer'] === '+31 6 1234 5678', 'create sim: phone shown as entered (spaces collapsed)');
 expect($sim['telefoonnummer_norm'] === '+31612345678', 'create sim: normalized phone stored');
 expect($sim['naam'] === '+31 6 1234 5678', 'sim display name is phone number');
-expect($sim['fysieke_staat'] === MOIRAI_CONDITION_DEFAULT, 'sim default condition');
+expect($sim['fysieke_staat'] === '', 'new sim without format is unknown format');
 expect($sim['uitgegeven_aan'] === null, 'new sim is reserve');
 expect($sim['verouderd'] === false, 'sim is never verouderd');
 
@@ -394,16 +394,34 @@ try {
 expect($dbBlocked, 'database unique index blocks duplicate code_norm');
 expect(moirai_unique_violation_message('simcards', ['code' => 'ZZZ', 'telefoonnummer_norm' => '+31687654321']) === 'Telefoonnummer 06 87654321 is al gekoppeld aan SIM-kaart abc-1.', 'DB fallback message names the conflicting sim');
 
+// --- SIM-formaat / oude schadewaarden -----------------------------------------
+
+$legacyPdo = moirai_db();
+// Bestaand record van vóór het SIM-formaat: schadewaarde in fysieke_staat.
+$legacyPdo->exec("UPDATE simcards SET fysieke_staat = 'beschadigd' WHERE code = 'abc-1'");
+$legacyBefore = moirai_count_simcards_legacy_condition($legacyPdo);
+expect($legacyBefore >= 1, 'legacy damage values on sims are counted: ' . $legacyBefore);
+expect(moirai_get_device('simcard', 'abc-1')['fysieke_staat'] === '', 'legacy damage value shown as unknown format');
+$keepLegacy = moirai_save_device('simcard', ['original_key' => 'abc-1', 'code' => 'abc-1', 'telefoonnummer' => '06 87654321', 'fysieke_staat' => ''], $users);
+$rawStmt = $legacyPdo->prepare('SELECT fysieke_staat FROM simcards WHERE code = :c');
+$rawStmt->execute(['c' => 'abc-1']);
+expect($rawStmt->fetchColumn() === 'beschadigd', 'saving without a format keeps the stored legacy value');
+expect(moirai_count_simcards_legacy_condition($legacyPdo) === $legacyBefore, 'legacy count unchanged without a choice');
+expect(invalid_message(static fn() => moirai_save_device('simcard', ['original_key' => 'abc-1', 'code' => 'abc-1', 'telefoonnummer' => '06 87654321', 'fysieke_staat' => 'beschadigd'], $users)) === LOC('moirai.error.sim_format_invalid'), 'damage value rejected for sim');
+expect((dispatch('lookups', [], [])['body']['sim_legacy_condition_count'] ?? -1) === $legacyBefore, 'lookups reports legacy sim count');
+expect(moirai_normalize_sim_format('Nano-SIM') === '4ff', 'sim format alias');
+expect(moirai_normalize_condition('netjes') === 'netjes', 'laptop condition unchanged');
+
 // --- Bewerken ----------------------------------------------------------------
 
 $edited = moirai_save_device('simcard', [
     'original_key' => 'abc-1',
     'code' => 'abc-1',
     'telefoonnummer' => '+31 6 8765 4321',
-    'fysieke_staat' => 'netjes',
+    'fysieke_staat' => '4ff',
 ], $users);
 expect($edited['telefoonnummer'] === '+31 6 8765 4321', 'edit own number in other format is allowed');
-expect($edited['fysieke_staat'] === 'netjes', 'edit condition');
+expect($edited['fysieke_staat'] === '4ff', 'edit sim format');
 $editDup = invalid_message(static fn() => moirai_save_device('simcard', ['original_key' => 'abc-1', 'code' => 'abc-1', 'telefoonnummer' => '0612345678'], $users));
 expect($editDup !== null && str_contains($editDup, 'al gekoppeld aan SIM-kaart 8931'), 'edit to other sim number rejected');
 $editDupCode = invalid_message(static fn() => moirai_save_device('simcard', ['original_key' => 'abc-1', 'code' => '893104001234 5678901', 'telefoonnummer' => '0687654321'], $users));
@@ -455,10 +473,11 @@ expect($find('sim-0002') === ['SIM-0002'], 'search by code');
 expect($find('Test User') === ['8931 0400 1234 5678 901'], 'search by assignee');
 expect($find('', 'reserve') === ['SIM-0002'], 'status filter reserve');
 expect($find('', 'assigned') === ['8931 0400 1234 5678 901'], 'status filter assigned');
-expect(count($find('', 'all', ['fysieke_staat' => 'uitstekend'])) === 2, 'attribute filter fysieke_staat matches');
-expect($find('', 'all', ['fysieke_staat' => 'beschadigd']) === [], 'attribute filter fysieke_staat excludes');
+expect(count($find('', 'all', ['fysieke_staat' => '4ff'])) === 1, 'attribute filter sim format matches');
+expect($find('', 'all', ['fysieke_staat' => '1ff']) === [], 'attribute filter sim format excludes');
 $filters = moirai_get_filter_options('simcard');
 expect(array_keys($filters) === ['fysieke_staat'], 'simcard filter options');
+expect(($filters['fysieke_staat'] ?? null) === MOIRAI_SIM_FORMAT_OPTIONS, 'simcard filter offers the five sim formats in order');
 
 // --- Printen uitgesloten -----------------------------------------------------
 
@@ -487,8 +506,8 @@ $created = dispatch('create', ['type' => 'simcard', 'code' => 'API-SIM-1', 'tele
 expect($created['status'] === 201 && ($created['body']['device']['code'] ?? '') === 'API-SIM-1', 'API create simcard');
 $apiDup = dispatch('create', ['type' => 'sim', 'code' => 'API-SIM-2', 'telefoonnummer' => '+31611223344']);
 expect($apiDup['status'] === 400 && str_contains((string) ($apiDup['body']['error'] ?? ''), 'al gekoppeld aan SIM-kaart API-SIM-1'), 'API duplicate phone 400 with Dutch error');
-$apiUpdate = dispatch('update', ['type' => 'simcard', 'id' => 'API-SIM-1', 'fysieke_staat' => 'beschadigd']);
-expect(($apiUpdate['body']['device']['fysieke_staat'] ?? '') === 'beschadigd' && ($apiUpdate['body']['device']['telefoonnummer'] ?? '') === '06 11 22 33 44', 'API partial update keeps phone');
+$apiUpdate = dispatch('update', ['type' => 'simcard', 'id' => 'API-SIM-1', 'fysieke_staat' => 'nieuw_in_kaart']);
+expect(($apiUpdate['body']['device']['fysieke_staat'] ?? '') === 'nieuw_in_kaart' && ($apiUpdate['body']['device']['telefoonnummer'] ?? '') === '06 11 22 33 44', 'API partial update keeps phone');
 $apiAssign = dispatch('assign', ['type' => 'simcard', 'id' => 'API-SIM-1', 'uitgegeven_email' => 'user@kvt.nl']);
 expect(($apiAssign['body']['device']['uitgegeven_aan']['email'] ?? '') === 'user@kvt.nl', 'API assign simcard');
 $apiList = dispatch('list', [], ['type' => 'simcard', 'q' => '0611223344']);
@@ -504,7 +523,7 @@ $apiBadPhone = dispatch('create', ['type' => 'simcard', 'code' => 'API-BAD', 'te
 expect($apiBadPhone['status'] === 400 && ($apiBadPhone['body']['error_code'] ?? '') === 'invalid_input' && ($apiBadPhone['body']['error'] ?? '') === LOC('moirai.error.phone_invalid'), 'API rejects invalid phone on blank-capable sim');
 $apiFill = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'telefoonnummer' => '06 55 66 77 88']);
 expect($apiFill['status'] === 200 && ($apiFill['body']['device']['telefoonnummer_norm'] ?? '') === '+31655667788', 'API update fills phone later');
-$apiKeep = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'fysieke_staat' => 'netjes']);
+$apiKeep = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'fysieke_staat' => '2ff']);
 expect(($apiKeep['body']['device']['telefoonnummer'] ?? '') === '06 55 66 77 88', 'API partial update keeps a later-filled phone');
 $apiClear = dispatch('update', ['type' => 'simcard', 'id' => 'API-BLANK', 'telefoonnummer' => '']);
 expect($apiClear['status'] === 200 && ($apiClear['body']['device']['telefoonnummer'] ?? 'x') === '', 'API update can clear the phone again');

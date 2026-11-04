@@ -478,10 +478,12 @@ $moiraiJsKeys = [
             color: #854d0e;
         }
 
-        .badge-condition-sim {
-            background: #eef2f7;
-            color: #334155;
-        }
+        .badge-sim-unknown { background: #e5e7eb; color: #374151; }
+        .badge-sim-1ff { background: #e0e7ff; color: #3730a3; }
+        .badge-sim-2ff { background: #ccfbf1; color: #115e59; }
+        .badge-sim-3ff { background: #fef3c7; color: #92400e; }
+        .badge-sim-4ff { background: #f3e8ff; color: #6b21a8; }
+        .badge-sim-nieuw_in_kaart { background: #dcfce7; color: #166534; }
 
         .badge-condition-beschadigd {
             background: #fecaca;
@@ -1233,6 +1235,10 @@ $moiraiJsKeys = [
         return selectOptionValue(option);
     }
 
+    function simFormatBadgeClass(value) {
+        return 'badge-sim-' + (String(value || '').trim() || 'unknown');
+    }
+
     function simFormatLabel(value) {
         var key = String(value || '').trim();
         return key ? t('moirai.sim_format.' + key) : t('moirai.sim_format.unknown');
@@ -1391,7 +1397,7 @@ $moiraiJsKeys = [
             var conditionBadgeClass = 'badge-condition-' + conditionKey;
             var conditionBadgeText = t('moirai.badge.condition', t('moirai.condition.' + conditionKey));
             if (state.tab === 'simcard') {
-                conditionBadgeClass = 'badge-condition-sim';
+                conditionBadgeClass = simFormatBadgeClass(device.fysieke_staat);
                 conditionBadgeText = t('moirai.badge.sim_format', simFormatLabel(device.fysieke_staat));
             }
             var key = device[keyField(state.tab)] || device.id;
@@ -1632,6 +1638,10 @@ $moiraiJsKeys = [
     function renderDetails(device) {
         var fields = fieldDefinitions(state.tab);
         var html = '<p class="condition-phrase">' + escapeHtml(conditionPhrase(device.fysieke_staat)) + '</p>';
+        if (state.tab === 'simcard') {
+            html = '<p class="condition-phrase">' + escapeHtml(t('moirai.field.sim_format')) + ': <span class="badge ' +
+                escapeHtml(simFormatBadgeClass(device.fysieke_staat)) + '">' + escapeHtml(simFormatLabel(device.fysieke_staat)) + '</span></p>';
+        }
         if (device.verouderd) {
             html += '<p class="condition-outdated-warning">' + escapeHtml(t('moirai.outdated.warning')) + '</p>';
         }

@@ -361,3 +361,12 @@
         padding: 14px 14px 16px;
     }
 }
+
+.kvt-chat-dialog .ponos-message-assignee,
+.kvt-chat-embed .ponos-message-assignee {
+    margin: 0.15rem 0 0.25rem auto;
+    text-align: right;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    color: #94a3b8;
+}

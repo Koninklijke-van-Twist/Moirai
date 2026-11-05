@@ -44,13 +44,30 @@ final class KvtChatStore
                 author_naam TEXT NOT NULL DEFAULT '',
                 body TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT
+                updated_at TEXT,
+                assignee_captured INTEGER NOT NULL DEFAULT 0,
+                assignee_naam TEXT,
+                assignee_email TEXT
             )
         ");
         $this->pdo->exec(
             'CREATE INDEX IF NOT EXISTS idx_kvt_chat_messages_thread
              ON kvt_chat_messages(thread_key, id)'
         );
+        $this->ensureColumn('kvt_chat_messages', 'assignee_captured', 'INTEGER NOT NULL DEFAULT 0');
+        $this->ensureColumn('kvt_chat_messages', 'assignee_naam', 'TEXT');
+        $this->ensureColumn('kvt_chat_messages', 'assignee_email', 'TEXT');
+    }
+
+    private function ensureColumn(string $table, string $column, string $definition): void
+    {
+        $columns = $this->pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+        foreach ($columns as $info) {
+            if (($info['name'] ?? '') === $column) {
+                return;
+            }
+        }
+        $this->pdo->exec('ALTER TABLE ' . $table . ' ADD COLUMN ' . $column . ' ' . $definition);
     }
 
     /**
@@ -59,7 +76,8 @@ final class KvtChatStore
     public function listMessages(string $threadKey): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at
+            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at,
+                    assignee_captured, assignee_naam, assignee_email
              FROM kvt_chat_messages
              WHERE thread_key = :thread_key
              ORDER BY id ASC'
@@ -79,7 +97,8 @@ final class KvtChatStore
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at
+            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at,
+                    assignee_captured, assignee_naam, assignee_email
              FROM kvt_chat_messages
              WHERE id = :id'
         );
@@ -100,7 +119,8 @@ final class KvtChatStore
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at
+            'SELECT id, thread_key, author_email, author_naam, body, created_at, updated_at,
+                    assignee_captured, assignee_naam, assignee_email
              FROM kvt_chat_messages
              WHERE id = :id AND thread_key = :thread_key'
         );
@@ -116,18 +136,27 @@ final class KvtChatStore
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @param array{captured?: bool, naam?: ?string, email?: ?string}|null $assignee
+     */
     public function addMessage(
         string $threadKey,
         string $authorEmail,
         string $authorName,
-        string $body
+        string $body,
+        ?array $assignee = null
     ): array {
         $now = (new DateTimeImmutable('now'))->format('c');
+        $captured = is_array($assignee) && !empty($assignee['captured']) ? 1 : 0;
+        $assigneeNaam = $captured === 1 ? (trim((string) ($assignee['naam'] ?? '')) ?: null) : null;
+        $assigneeEmail = $captured === 1 ? (trim((string) ($assignee['email'] ?? '')) ?: null) : null;
         $stmt = $this->pdo->prepare(
             'INSERT INTO kvt_chat_messages
-                (thread_key, author_email, author_naam, body, created_at, updated_at)
+                (thread_key, author_email, author_naam, body, created_at, updated_at,
+                 assignee_captured, assignee_naam, assignee_email)
              VALUES
-                (:thread_key, :email, :naam, :body, :created_at, NULL)'
+                (:thread_key, :email, :naam, :body, :created_at, NULL,
+                 :assignee_captured, :assignee_naam, :assignee_email)'
         );
         $stmt->execute([
             'thread_key' => $threadKey,
@@ -135,6 +164,9 @@ final class KvtChatStore
             'naam' => $authorName,
             'body' => $body,
             'created_at' => $now,
+            'assignee_captured' => $captured,
+            'assignee_naam' => $assigneeNaam,
+            'assignee_email' => $assigneeEmail,
         ]);
 
         $row = $this->getMessage((int) $this->pdo->lastInsertId());
@@ -148,19 +180,40 @@ final class KvtChatStore
     /**
      * @return array<string, mixed>
      */
-    public function updateMessage(int $id, string $body): array
+    /**
+     * @param array{captured?: bool, naam?: ?string, email?: ?string}|null $assignee
+     */
+    public function updateMessage(int $id, string $body, ?array $assignee = null): array
     {
         $now = (new DateTimeImmutable('now'))->format('c');
-        $stmt = $this->pdo->prepare(
-            'UPDATE kvt_chat_messages
-             SET body = :body, updated_at = :updated_at
-             WHERE id = :id'
-        );
-        $stmt->execute([
-            'body' => $body,
-            'updated_at' => $now,
-            'id' => $id,
-        ]);
+        if (is_array($assignee) && !empty($assignee['captured'])) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE kvt_chat_messages
+                 SET body = :body, updated_at = :updated_at,
+                     assignee_captured = 1,
+                     assignee_naam = :assignee_naam,
+                     assignee_email = :assignee_email
+                 WHERE id = :id'
+            );
+            $stmt->execute([
+                'body' => $body,
+                'updated_at' => $now,
+                'assignee_naam' => trim((string) ($assignee['naam'] ?? '')) ?: null,
+                'assignee_email' => trim((string) ($assignee['email'] ?? '')) ?: null,
+                'id' => $id,
+            ]);
+        } else {
+            $stmt = $this->pdo->prepare(
+                'UPDATE kvt_chat_messages
+                 SET body = :body, updated_at = :updated_at
+                 WHERE id = :id'
+            );
+            $stmt->execute([
+                'body' => $body,
+                'updated_at' => $now,
+                'id' => $id,
+            ]);
+        }
 
         $row = $this->getMessage($id);
         if ($row === null) {
@@ -177,15 +230,16 @@ final class KvtChatStore
     }
 
     /**
+     * @param array{captured?: bool, naam?: ?string, email?: ?string}|null $assignee
      * @return array<string, mixed>|null
      */
-    public function updateMessageInThread(int $id, string $threadKey, string $body): ?array
+    public function updateMessageInThread(int $id, string $threadKey, string $body, ?array $assignee = null): ?array
     {
         if ($this->getMessageInThread($id, $threadKey) === null) {
             return null;
         }
 
-        return $this->updateMessage($id, $body);
+        return $this->updateMessage($id, $body, $assignee);
     }
 
     public function deleteMessageInThread(int $id, string $threadKey): bool
@@ -240,7 +294,8 @@ final class KvtChatStore
             $params[$name] = $key;
         }
 
-        $sql = 'SELECT m.id, m.thread_key, m.author_email, m.author_naam, m.body, m.created_at, m.updated_at
+        $sql = 'SELECT m.id, m.thread_key, m.author_email, m.author_naam, m.body, m.created_at, m.updated_at,
+                       m.assignee_captured, m.assignee_naam, m.assignee_email
                 FROM kvt_chat_messages m
                 INNER JOIN (
                     SELECT thread_key, MAX(id) AS max_id

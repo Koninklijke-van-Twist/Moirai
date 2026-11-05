@@ -32,6 +32,7 @@ if (!KvtChat::isConfigured()) {
         'can_delete' => 'own',
         'admin_bypass' => true,
         'migrate_device_notes' => true,
+        'resolve_assignee' => static fn(string $threadKey): ?array => moirai_note_assignee_for_thread($threadKey),
         'date_locale' => function_exists('getDateLocale') ? getDateLocale() : 'nl-NL',
         'i18n' => [
             'title' => LOC('moirai.notes.title'),
@@ -53,6 +54,8 @@ if (!KvtChat::isConfigured()) {
             'save_failed' => LOC('moirai.notes.save_failed'),
             'delete_failed' => LOC('moirai.notes.delete_failed'),
             'unknown_user' => LOC('moirai.unknown_user'),
+            'assignee_assigned' => LOC('moirai.notes.assignee_assigned'),
+            'assignee_none' => LOC('moirai.notes.assignee_none'),
             'error.thread_required' => LOC('moirai.error.invalid_input'),
             'error.forbidden' => LOC('moirai.error.forbidden'),
             'error.empty' => LOC('moirai.error.note_empty'),

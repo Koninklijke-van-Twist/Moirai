@@ -175,7 +175,20 @@
             }
             html += '</span>';
         }
-        html += '</div><div class="ponos-message-body">' + formatDescriptionHtml(message.message_text || '') + '</div></article></div>';
+        html += '</div>';
+        var assigneeLine = '';
+        if (message.assignee_captured) {
+            var assigneeLabel = message.assignee_label;
+            if (assigneeLabel) {
+                assigneeLine = String(t('assignee_assigned') || 'Assigned to: %s').replace('%s', String(assigneeLabel));
+            } else {
+                assigneeLine = String(t('assignee_none') || 'Unassigned');
+            }
+        }
+        if (assigneeLine) {
+            html += '<div class="ponos-message-assignee">' + escapeHtml(assigneeLine) + '</div>';
+        }
+        html += '<div class="ponos-message-body">' + formatDescriptionHtml(message.message_text || '') + '</div></article></div>';
         return html;
     }
 

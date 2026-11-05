@@ -36,6 +36,7 @@ $moiraiJsKeys = [
     'moirai.sim_format.1ff', 'moirai.sim_format.2ff', 'moirai.sim_format.3ff', 'moirai.sim_format.4ff', 'moirai.sim_format.nieuw_in_kaart',
     'moirai.status.all', 'moirai.status.assigned', 'moirai.status.reserve', 'moirai.status.unavailable',
     'moirai.history.empty', 'moirai.history.current', 'moirai.history.entry', 'moirai.history.since',
+    'moirai.history.state_received', 'moirai.history.state_returned',
     'moirai.confirm.delete', 'moirai.delete.confirm.title', 'moirai.delete.confirm.body',
     'moirai.btn.delete_confirm', 'moirai.unknown_user', 'moirai.error.request_failed', 'moirai.missing.fields',
     'moirai.outdated.label', 'moirai.outdated.warning',
@@ -488,6 +489,21 @@ $moiraiJsKeys = [
         .badge-condition-beschadigd {
             background: #fecaca;
             color: #b91c1c;
+        }
+
+        .history-states {
+            margin-top: 0.35rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .history-state-label {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+        .history-state-sep {
+            color: #94a3b8;
         }
 
         .empty-state {
@@ -1607,6 +1623,15 @@ $moiraiJsKeys = [
         });
     }
 
+    function historyConditionBadgeHtml(conditionKey) {
+        var key = String(conditionKey || '').trim();
+        if (!key || state.tab === 'simcard') {
+            return '';
+        }
+        return '<span class="badge badge-condition-' + escapeHtml(key) + '">' +
+            escapeHtml(t('moirai.condition.' + key)) + '</span>';
+    }
+
     function renderHistoryBlock(device) {
         var html = '';
         if (device.uitgegeven_aan && device.uitgegeven_aan.email) {
@@ -1615,17 +1640,38 @@ $moiraiJsKeys = [
                 : (device.uitgegeven_aan.naam || device.uitgegeven_aan.email);
             html += '<div class="history-block"><h3>' + escapeHtml(t('moirai.history.current')) + '</h3><p>' +
                 escapeHtml(currentLabel + ' · ' +
-                t('moirai.history.since', device.uitgegeven_sinds || '—')) + '</p></div>';
+                t('moirai.history.since', device.uitgegeven_sinds || '—')) + '</p>';
+            var currentStaat = historyConditionBadgeHtml(device.uitgegeven_staat);
+            if (currentStaat) {
+                html += '<p class="history-states">' + currentStaat + '</p>';
+            }
+            html += '</div>';
         }
         html += '<div class="history-block"><h3>' + escapeHtml(t('moirai.modal.history')) + '</h3>';
         if (device.historie_uitgegeven && device.historie_uitgegeven.length) {
             html += '<ul class="history-list">';
             device.historie_uitgegeven.slice().reverse().forEach(function (entry) {
                 var user = entry.gebruiker || {};
-                html += '<li>' + escapeHtml(t('moirai.history.entry',
+                html += '<li><div>' + escapeHtml(t('moirai.history.entry',
                     user.naam || user.email || t('moirai.unknown_user'),
                     entry.van || '?',
-                    entry.tot || '?')) + '</li>';
+                    entry.tot || '?')) + '</div>';
+                var ontvangst = historyConditionBadgeHtml(entry.staat_ontvangst);
+                var teruggave = historyConditionBadgeHtml(entry.staat_teruggave);
+                if (ontvangst || teruggave) {
+                    html += '<div class="history-states">';
+                    if (ontvangst) {
+                        html += '<span class="history-state-label">' + escapeHtml(t('moirai.history.state_received')) + '</span> ' + ontvangst;
+                    }
+                    if (ontvangst && teruggave) {
+                        html += ' <span class="history-state-sep">→</span> ';
+                    }
+                    if (teruggave) {
+                        html += '<span class="history-state-label">' + escapeHtml(t('moirai.history.state_returned')) + '</span> ' + teruggave;
+                    }
+                    html += '</div>';
+                }
+                html += '</li>';
             });
             html += '</ul>';
         } else {

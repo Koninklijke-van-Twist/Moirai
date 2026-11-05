@@ -672,18 +672,29 @@ function moirai_persist_device_assignment(string $type, array $device): array
         throw new InvalidArgumentException(moirai_loc('moirai.error.device_not_found'));
     }
 
+    $uitgegevenStaat = moirai_history_condition_value(
+        $typeKey,
+        $device['uitgegeven_staat'] ?? null
+    );
     $assignment = moirai_assignment_columns(
         $device['uitgegeven_aan'] ?? null,
         $device['uitgegeven_sinds'] ?? null,
-        $device['historie_uitgegeven'] ?? []
+        $device['historie_uitgegeven'] ?? [],
+        $uitgegevenStaat,
+        $typeKey
     );
 
     $table = moirai_table_name($typeKey);
     $pdo = moirai_db();
+    $setSql = 'uitgegeven_user_id = :uitgegeven_user_id, uitgegeven_naam = :uitgegeven_naam, '
+        . 'uitgegeven_email = :uitgegeven_email, uitgegeven_sinds = :uitgegeven_sinds, historie_json = :historie_json';
+    if (array_key_exists('uitgegeven_staat', $assignment)) {
+        $setSql = 'uitgegeven_user_id = :uitgegeven_user_id, uitgegeven_naam = :uitgegeven_naam, '
+            . 'uitgegeven_email = :uitgegeven_email, uitgegeven_sinds = :uitgegeven_sinds, '
+            . 'uitgegeven_staat = :uitgegeven_staat, historie_json = :historie_json';
+    }
     $stmt = $pdo->prepare(
-        'UPDATE ' . $table . ' SET uitgegeven_user_id = :uitgegeven_user_id, uitgegeven_naam = :uitgegeven_naam, '
-        . 'uitgegeven_email = :uitgegeven_email, uitgegeven_sinds = :uitgegeven_sinds, historie_json = :historie_json '
-        . 'WHERE ' . $keyField . ' = :key'
+        'UPDATE ' . $table . ' SET ' . $setSql . ' WHERE ' . $keyField . ' = :key'
     );
     $stmt->execute($assignment + ['key' => $keyValue]);
 
@@ -703,7 +714,8 @@ function moirai_assign_device(string $type, string $key, mixed $userInput, array
     }
 
     $validatedUser = moirai_validate_user_assignment($userInput, $allowedUsers);
-    $device = moirai_apply_assignment_history($existing, $validatedUser);
+    $typeKey = moirai_type_key($type);
+    $device = moirai_apply_assignment_history($existing, $validatedUser, $typeKey);
 
     return moirai_persist_device_assignment($type, $device);
 }
@@ -925,6 +937,9 @@ function moirai_init_schema(PDO $pdo): void
     moirai_ensure_column($pdo, 'phones', 'verouderd', 'INTEGER NOT NULL DEFAULT 0');
     moirai_ensure_column($pdo, 'laptops', 'verouderd_alert_verzonden', 'INTEGER NOT NULL DEFAULT 0');
     moirai_ensure_column($pdo, 'phones', 'verouderd_alert_verzonden', 'INTEGER NOT NULL DEFAULT 0');
+    foreach (['laptops', 'phones'] as $assignmentTable) {
+        moirai_ensure_column($pdo, $assignmentTable, 'uitgegeven_staat', 'TEXT');
+    }
     $pdo->exec(
         "UPDATE laptops SET fysieke_staat = '" . MOIRAI_CONDITION_DEFAULT . "'
          WHERE trim(fysieke_staat) = ''"
@@ -951,6 +966,7 @@ function moirai_init_schema(PDO $pdo): void
         )
     ");
     moirai_ensure_column($pdo, 'accessories', 'modelnummer', "TEXT NOT NULL DEFAULT ''");
+    moirai_ensure_column($pdo, 'accessories', 'uitgegeven_staat', 'TEXT');
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS accessory_id_seq (
             n INTEGER PRIMARY KEY AUTOINCREMENT
@@ -958,6 +974,10 @@ function moirai_init_schema(PDO $pdo): void
     ");
 
     moirai_migrate_simcards_table($pdo);
+    // Na een mislukte blank-phone-migratie het oude simcards-schema onaangeroerd laten.
+    if (moirai_sqlite_table_exists($pdo, 'simcards') && !moirai_simcard_blank_phone_skipped($pdo)) {
+        moirai_ensure_column($pdo, 'simcards', 'uitgegeven_staat', 'TEXT');
+    }
     moirai_migrate_budget_tables($pdo);
 
     moirai_migrate_laptop_os_column($pdo);
@@ -1944,7 +1964,11 @@ function moirai_row_to_device(array $row, string $typeKey): array
         'aanschafdatum' => (string) ($row['aanschafdatum'] ?? ''),
         'uitgegeven_aan' => $uitgegeven,
         'uitgegeven_sinds' => $row['uitgegeven_sinds'] ?? null,
-        'historie_uitgegeven' => $historie,
+        'uitgegeven_staat' => moirai_history_condition_value(
+            $typeKey,
+            $row['uitgegeven_staat'] ?? null
+        ),
+        'historie_uitgegeven' => moirai_normalize_history_list($historie, $typeKey),
         'qr_geldig' => ((int) ($row['qr_geldig'] ?? 0)) === 1,
         'verouderd' => in_array($typeKey, moirai_aging_type_keys(), true) && ((int) ($row['verouderd'] ?? 0)) === 1,
         'verouderd_alert_verzonden' => in_array($typeKey, moirai_aging_type_keys(), true)
@@ -2040,13 +2064,215 @@ function moirai_list_devices(string $type): array
     return $devices;
 }
 
-function moirai_apply_assignment_history(array $existing, ?array $newUser): array
+function moirai_tracks_assignment_condition(?string $typeKey): bool
+{
+    return $typeKey !== null && $typeKey !== 'simcards';
+}
+
+/** @return list<string> */
+function moirai_assignment_condition_tables(): array
+{
+    return ['laptops', 'phones', 'accessories', 'simcards'];
+}
+
+function moirai_history_condition_value(?string $typeKey, mixed $value): ?string
+{
+    if (!moirai_tracks_assignment_condition($typeKey)) {
+        return null;
+    }
+
+    $raw = trim((string) ($value ?? ''));
+    if ($raw === '') {
+        return null;
+    }
+
+    try {
+        return moirai_normalize_condition($raw);
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+/**
+ * @param array<string, mixed> $entry
+ * @return array<string, mixed>
+ */
+function moirai_normalize_history_entry(array $entry, ?string $typeKey = null): array
+{
+    $tracks = moirai_tracks_assignment_condition($typeKey);
+    $ontvangst = array_key_exists('staat_ontvangst', $entry)
+        ? moirai_history_condition_value($typeKey, $entry['staat_ontvangst'])
+        : null;
+    $teruggave = array_key_exists('staat_teruggave', $entry)
+        ? moirai_history_condition_value($typeKey, $entry['staat_teruggave'])
+        : null;
+
+    if (!$tracks) {
+        $ontvangst = null;
+        $teruggave = null;
+    }
+
+    $entry['staat_ontvangst'] = $ontvangst;
+    $entry['staat_teruggave'] = $teruggave;
+    $entry['teruggave_at'] = trim((string) ($entry['teruggave_at'] ?? '')) ?: null;
+
+    return $entry;
+}
+
+/**
+ * @param list<mixed> $historie
+ * @return list<array<string, mixed>>
+ */
+function moirai_normalize_history_list(array $historie, ?string $typeKey = null): array
+{
+    $out = [];
+    foreach ($historie as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $out[] = moirai_normalize_history_entry($entry, $typeKey);
+    }
+
+    return $out;
+}
+
+function moirai_history_within_hours(?string $isoTimestamp, int $hours): bool
+{
+    $isoTimestamp = trim((string) $isoTimestamp);
+    if ($isoTimestamp === '' || $hours < 0) {
+        return false;
+    }
+
+    try {
+        $at = new DateTimeImmutable($isoTimestamp);
+    } catch (Throwable) {
+        return false;
+    }
+
+    $age = (new DateTimeImmutable('now'))->getTimestamp() - $at->getTimestamp();
+
+    return $age >= 0 && $age <= ($hours * 3600);
+}
+
+/**
+ * Na teruggave: fysieke-staat-update binnen 24 uur telt als staat_teruggave,
+ * zolang het apparaat niet opnieuw is toegewezen.
+ *
+ * @param array<string, mixed> $device
+ * @param array<string, mixed> $previous
+ * @return array<string, mixed>
+ */
+function moirai_maybe_update_return_condition(array $device, array $previous, string $typeKey): array
+{
+    if (!moirai_tracks_assignment_condition($typeKey)) {
+        return $device;
+    }
+
+    if (moirai_normalize_user($device['uitgegeven_aan'] ?? null) !== null) {
+        return $device;
+    }
+
+    $oldCond = moirai_history_condition_value($typeKey, $previous['fysieke_staat'] ?? null);
+    $newCond = moirai_history_condition_value($typeKey, $device['fysieke_staat'] ?? null);
+    if ($newCond === null || $oldCond === $newCond) {
+        return $device;
+    }
+
+    $historie = moirai_normalize_history_list(
+        is_array($device['historie_uitgegeven'] ?? null) ? $device['historie_uitgegeven'] : [],
+        $typeKey
+    );
+    if ($historie === []) {
+        return $device;
+    }
+
+    $lastIdx = count($historie) - 1;
+    if (!moirai_history_within_hours($historie[$lastIdx]['teruggave_at'] ?? null, 24)) {
+        return $device;
+    }
+
+    $historie[$lastIdx]['staat_teruggave'] = $newCond;
+    $device['historie_uitgegeven'] = $historie;
+
+    return $device;
+}
+
+/**
+ * Snapshot van de apparaat-toewijzing voor een notitie (incl. 12-uursregel na teruggave).
+ *
+ * @return array{captured: bool, naam: ?string, email: ?string}
+ */
+function moirai_device_assignee_snapshot_for_note(array $device): array
+{
+    $current = moirai_normalize_user($device['uitgegeven_aan'] ?? null);
+    if ($current !== null) {
+        return [
+            'captured' => true,
+            'naam' => trim((string) ($current['naam'] ?? '')) ?: null,
+            'email' => trim((string) ($current['email'] ?? '')) ?: null,
+        ];
+    }
+
+    $historie = moirai_normalize_history_list(
+        is_array($device['historie_uitgegeven'] ?? null) ? $device['historie_uitgegeven'] : [],
+        null
+    );
+    if ($historie !== []) {
+        $last = $historie[count($historie) - 1];
+        if (moirai_history_within_hours($last['teruggave_at'] ?? null, 12)) {
+            $prev = moirai_normalize_user($last['gebruiker'] ?? null);
+            if ($prev !== null) {
+                return [
+                    'captured' => true,
+                    'naam' => trim((string) ($prev['naam'] ?? '')) ?: null,
+                    'email' => trim((string) ($prev['email'] ?? '')) ?: null,
+                ];
+            }
+        }
+    }
+
+    return ['captured' => true, 'naam' => null, 'email' => null];
+}
+
+/**
+ * @return array{captured: bool, naam: ?string, email: ?string}|null
+ */
+function moirai_note_assignee_for_thread(string $threadKey): ?array
+{
+    $threadKey = trim($threadKey);
+    if (!preg_match('/^device:([a-z]+):(.+)$/', $threadKey, $matches)) {
+        return null;
+    }
+
+    $typeKey = $matches[1];
+    $deviceKey = $matches[2];
+    if (moirai_type_key($typeKey) === null) {
+        return null;
+    }
+
+    $device = moirai_get_device($typeKey, $deviceKey);
+    if ($device === null) {
+        return ['captured' => true, 'naam' => null, 'email' => null];
+    }
+
+    return moirai_device_assignee_snapshot_for_note($device);
+}
+
+function moirai_apply_assignment_history(array $existing, ?array $newUser, ?string $typeKey = null): array
 {
     $today = date('Y-m-d');
+    $now = (new DateTimeImmutable('now'))->format('c');
     $oldUser = moirai_normalize_user($existing['uitgegeven_aan'] ?? null);
     $newUser = moirai_normalize_user($newUser);
-    $historie = is_array($existing['historie_uitgegeven'] ?? null) ? $existing['historie_uitgegeven'] : [];
+    $historie = moirai_normalize_history_list(
+        is_array($existing['historie_uitgegeven'] ?? null) ? $existing['historie_uitgegeven'] : [],
+        $typeKey
+    );
     $uitgegevenSinds = trim((string) ($existing['uitgegeven_sinds'] ?? ''));
+    $conditionNow = moirai_history_condition_value($typeKey, $existing['fysieke_staat'] ?? null);
+    $receiptState = array_key_exists('uitgegeven_staat', $existing)
+        ? moirai_history_condition_value($typeKey, $existing['uitgegeven_staat'])
+        : null;
 
     if (moirai_users_match($oldUser, $newUser)) {
         $existing['uitgegeven_aan'] = $newUser;
@@ -2056,21 +2282,28 @@ function moirai_apply_assignment_history(array $existing, ?array $newUser): arra
         }
         if ($newUser === null) {
             $existing['uitgegeven_sinds'] = null;
+            $existing['uitgegeven_staat'] = null;
+        } elseif ($receiptState === null && $conditionNow !== null) {
+            $existing['uitgegeven_staat'] = $conditionNow;
         }
         return $existing;
     }
 
     if ($oldUser !== null) {
-        $historie[] = [
+        $historie[] = moirai_normalize_history_entry([
             'gebruiker' => $oldUser,
             'van' => $uitgegevenSinds !== '' ? $uitgegevenSinds : $today,
             'tot' => $today,
-        ];
+            'staat_ontvangst' => $receiptState,
+            'staat_teruggave' => $conditionNow,
+            'teruggave_at' => $now,
+        ], $typeKey);
     }
 
     $existing['uitgegeven_aan'] = $newUser;
     $existing['historie_uitgegeven'] = $historie;
     $existing['uitgegeven_sinds'] = $newUser !== null ? $today : null;
+    $existing['uitgegeven_staat'] = $newUser !== null ? $conditionNow : null;
 
     return $existing;
 }
@@ -2099,17 +2332,29 @@ function moirai_validate_user_assignment(?array $user, array $allowedUsers): ?ar
     throw new InvalidArgumentException(moirai_loc('moirai.error.assign_invalid_user'));
 }
 
-function moirai_assignment_columns(?array $user, ?string $since, array $historie): array
-{
+function moirai_assignment_columns(
+    ?array $user,
+    ?string $since,
+    array $historie,
+    ?string $uitgegevenStaat = null,
+    ?string $typeKey = null
+): array {
     $user = moirai_normalize_user($user);
 
-    return [
+    $columns = [
         'uitgegeven_user_id' => $user['id'] ?? null,
         'uitgegeven_naam' => $user['naam'] ?? null,
         'uitgegeven_email' => $user['email'] ?? null,
         'uitgegeven_sinds' => $user !== null ? ($since ?: date('Y-m-d')) : null,
         'historie_json' => json_encode($historie, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
     ];
+
+    // SIM-kaarten hebben geen fysieke-staat-tracking; kolom kan op oude schema's ontbreken.
+    if ($typeKey !== 'simcards') {
+        $columns['uitgegeven_staat'] = $user !== null ? $uitgegevenStaat : null;
+    }
+
+    return $columns;
 }
 
 function moirai_save_device(string $type, array $input, array $allowedUsers, bool $updateAssignment = false): array
@@ -2155,7 +2400,12 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
     }
 
     $existing = $isNew
-        ? ['historie_uitgegeven' => [], 'uitgegeven_aan' => null, 'uitgegeven_sinds' => null]
+        ? [
+            'historie_uitgegeven' => [],
+            'uitgegeven_aan' => null,
+            'uitgegeven_sinds' => null,
+            'uitgegeven_staat' => null,
+        ]
         : moirai_get_device($type, $originalKey);
 
     if (!$isNew && $existing === null) {
@@ -2171,17 +2421,21 @@ function moirai_save_device(string $type, array $input, array $allowedUsers, boo
             ? $input['uitgegeven_aan']
             : ($existing['uitgegeven_aan'] ?? null);
         $validatedUser = moirai_validate_user_assignment($requestedUser, $allowedUsers);
-        $device = moirai_apply_assignment_history($device, $validatedUser);
+        $device = moirai_apply_assignment_history($device, $validatedUser, $typeKey);
     } elseif (is_array($existing)) {
         $device['uitgegeven_aan'] = $existing['uitgegeven_aan'] ?? null;
         $device['uitgegeven_sinds'] = $existing['uitgegeven_sinds'] ?? null;
+        $device['uitgegeven_staat'] = $existing['uitgegeven_staat'] ?? null;
         $device['historie_uitgegeven'] = $existing['historie_uitgegeven'] ?? [];
+        $device = moirai_maybe_update_return_condition($device, $existing, $typeKey);
     }
 
     $assignment = moirai_assignment_columns(
         $device['uitgegeven_aan'] ?? null,
         $device['uitgegeven_sinds'] ?? null,
-        $device['historie_uitgegeven'] ?? []
+        $device['historie_uitgegeven'] ?? [],
+        moirai_history_condition_value($typeKey, $device['uitgegeven_staat'] ?? null),
+        $typeKey
     );
 
     $pdo = moirai_db();
@@ -2740,7 +2994,8 @@ function moirai_update_aging_flags(string $typeKey, string $key, bool $verouderd
 
 function moirai_mark_aging_device_unavailable(string $type, array $device): array
 {
-    $updated = moirai_apply_assignment_history($device, moirai_unavailable_user());
+    $typeKey = moirai_type_key($type);
+    $updated = moirai_apply_assignment_history($device, moirai_unavailable_user(), $typeKey);
 
     return moirai_persist_device_assignment($type, $updated);
 }

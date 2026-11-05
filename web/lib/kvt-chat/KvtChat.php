@@ -49,6 +49,7 @@ final class KvtChat
             'max_length' => 4000,
             'date_locale' => 'nl-NL',
             'migrate_device_notes' => false,
+            'resolve_assignee' => null,
         ];
 
         self::$config = array_replace_recursive($defaults, $config);
@@ -368,7 +369,8 @@ final class KvtChat
         }
         self::assertBody($body);
 
-        $row = self::store()->addMessage($threadKey, $email, $viewer['name'], $body);
+        $assignee = self::resolveAssignee($threadKey);
+        $row = self::store()->addMessage($threadKey, $email, $viewer['name'], $body, $assignee);
 
         return self::mapMessage($row, $viewer);
     }
@@ -391,7 +393,8 @@ final class KvtChat
             throw new InvalidArgumentException(self::i18n('error.forbidden'));
         }
 
-        $updated = self::store()->updateMessage($id, $body);
+        $assignee = self::resolveAssignee((string) ($row['thread_key'] ?? ''));
+        $updated = self::store()->updateMessage($id, $body, $assignee);
 
         return self::mapMessage($updated, $viewer);
     }
@@ -430,7 +433,8 @@ final class KvtChat
             throw new InvalidArgumentException(self::i18n('error.forbidden'));
         }
 
-        $updated = self::store()->updateMessageInThread($id, $threadKey, $body);
+        $assignee = self::resolveAssignee($threadKey);
+        $updated = self::store()->updateMessageInThread($id, $threadKey, $body, $assignee);
         if ($updated === null) {
             throw new InvalidArgumentException(self::i18n('error.not_found'));
         }
@@ -461,9 +465,45 @@ final class KvtChat
      * @param array{email: string, name: string, is_admin: bool} $viewer
      * @return array<string, mixed>
      */
+
+    /**
+     * @return array{captured: bool, naam: ?string, email: ?string}|null
+     */
+    public static function resolveAssignee(string $threadKey): ?array
+    {
+        self::assertConfigured();
+        $hook = self::$config['resolve_assignee'] ?? null;
+        if (!is_callable($hook)) {
+            return null;
+        }
+        $result = $hook($threadKey);
+        if (!is_array($result)) {
+            return null;
+        }
+        return [
+            'captured' => !empty($result['captured']),
+            'naam' => isset($result['naam']) ? (trim((string) $result['naam']) ?: null) : null,
+            'email' => isset($result['email']) ? (trim((string) $result['email']) ?: null) : null,
+        ];
+    }
+
     public static function mapMessage(array $row, array $viewer): array
     {
         $email = strtolower(trim((string) ($row['author_email'] ?? '')));
+
+        $assigneeCaptured = ((int) ($row['assignee_captured'] ?? 0)) === 1;
+        $assigneeNaam = trim((string) ($row['assignee_naam'] ?? ''));
+        $assigneeEmail = trim((string) ($row['assignee_email'] ?? ''));
+        $assigneeLabel = null;
+        if ($assigneeCaptured) {
+            if ($assigneeNaam !== '') {
+                $assigneeLabel = $assigneeNaam;
+            } elseif ($assigneeEmail !== '') {
+                $assigneeLabel = $assigneeEmail;
+            } else {
+                $assigneeLabel = '';
+            }
+        }
 
         return [
             'id' => (int) ($row['id'] ?? 0),
@@ -478,6 +518,10 @@ final class KvtChat
             'can_edit' => self::mayManage($row, $viewer, 'can_edit'),
             'can_delete' => self::mayManage($row, $viewer, 'can_delete'),
             'colors' => kvt_chat_colors_for_email($email),
+            'assignee_captured' => $assigneeCaptured,
+            'assignee_naam' => $assigneeCaptured ? ($assigneeNaam !== '' ? $assigneeNaam : null) : null,
+            'assignee_email' => $assigneeCaptured ? ($assigneeEmail !== '' ? $assigneeEmail : null) : null,
+            'assignee_label' => $assigneeLabel,
         ];
     }
 
@@ -531,6 +575,8 @@ final class KvtChat
             'save_failed' => 'Change could not be saved.',
             'delete_failed' => 'Message could not be deleted.',
             'unknown_user' => 'Unknown',
+            'assignee_assigned' => 'Assigned to: %s',
+            'assignee_none' => 'Unassigned',
             'error.thread_required' => 'Thread key is required.',
             'error.forbidden' => 'Forbidden.',
             'error.empty' => 'Message cannot be empty.',
